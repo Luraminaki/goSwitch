@@ -21,8 +21,7 @@ type Response struct {
 }
 
 type Config struct {
-	Rows           int   `json:"Rows"`
-	Cols           int   `json:"Cols"`
+	Dim            int   `json:"Dim"`
 	ToggleSequence []int `json:"ToggleSequence"`
 }
 
@@ -36,23 +35,23 @@ func NewWebApp() *WebAppX {
 	jsonFile, err := os.Open("./config.json")
 
 	if err != nil {
-		log.Fatal("Error when opening JSON file: ", err)
+		log.Fatal("Error when opening JSON file: ", err.Error())
 	}
 
 	defer jsonFile.Close()
 
 	if err != nil {
-		log.Fatal("Error when reading JSON file: ", err)
+		log.Fatal("Error when reading JSON file: ", err.Error())
 	}
 
 	var config Config
 	err = json.NewDecoder(jsonFile).Decode(&config)
 
 	if err != nil {
-		log.Fatal("Error when parsing JSON file: ", err)
+		log.Fatal("Error when parsing JSON file: ", err.Error())
 	}
 
-	switchGame := grid.NewGrid(config.Cols, config.Rows)
+	switchGame := grid.NewGrid(config.Dim, config.ToggleSequence)
 	switchGame.PrettyPrintGrid()
 
 	server := echo.New()
@@ -75,22 +74,15 @@ func (wx *WebAppX) ToggleButton(c echo.Context) error {
 		Error:  "",
 	}
 
-	x, err := strconv.Atoi(c.Param("x"))
-	if err == nil {
+	pos, err := strconv.Atoi(c.Param("pos"))
+	if err != nil {
 		resp.Status = "ERROR"
 		resp.Error = "Params error: " + err.Error()
 		return c.JSON(http.StatusOK, resp)
 	}
 
-	y, err := strconv.Atoi(c.Param("y"))
-	if err == nil {
-		resp.Status = "ERROR"
-		resp.Error = "Params error: " + err.Error()
-		return c.JSON(http.StatusOK, resp)
-	}
-
-	fmt.Printf("Switching (%d,%d)\n\n", x, y)
-	wx.SwitchGame.SwitchCell(x, y, wx.Config.ToggleSequence)
+	fmt.Printf("Switching (%d)\n\n", pos)
+	wx.SwitchGame.Switch(pos)
 	wx.SwitchGame.PrettyPrintGrid()
 
 	resp.Win = wx.SwitchGame.CheckWin()

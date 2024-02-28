@@ -7,17 +7,22 @@ import (
 )
 
 type Grid struct {
-	rows, cols int
-	grid       []int
-	rand       *rand.Rand
+	dim          int
+	rows         int
+	cols         int
+	neighborhood []int
+	grid         []int
+	rand         *rand.Rand
 }
 
-func NewGrid(cols, rows int) *Grid {
+func NewGrid(dim int, neighborhood []int) *Grid {
 	g := &Grid{
-		rows: rows,
-		cols: cols,
-		grid: make([]int, cols*rows),
-		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
+		dim:          dim,
+		rows:         dim,
+		cols:         dim,
+		neighborhood: neighborhood,
+		grid:         make([]int, dim*dim),
+		rand:         rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 	g.initGame()
 	for g.CheckWin() {
@@ -34,20 +39,19 @@ func (g *Grid) initGame() {
 	}
 }
 
-func (g *Grid) checkOOB(x, y int) bool {
-	return x >= 0 && x < g.cols && y >= 0 && y < g.rows
+func (g *Grid) coordFlatToCart(dim int) (int, int) {
+	if dim >= len(g.grid) {
+		return -1, -1
+	}
+	return dim % g.dim, dim / g.dim
 }
 
-func (g *Grid) CheckWin() bool {
-	sum := 0
-	for _, val := range g.grid {
-		sum += val
-	}
-	return sum == 0 || sum == g.rows*g.cols
+func (g *Grid) checkOOB(x, y int) bool {
+	return (0 <= x && x < g.cols) && (0 <= y && y < g.rows)
 }
 
 func (g *Grid) switchV4(x, y int) [][2]int {
-	var coordsToSwitch [][2]int
+	coordsToSwitch := [][2]int{}
 	if g.checkOOB(x+1, y) {
 		coordsToSwitch = append(coordsToSwitch, [2]int{x + 1, y})
 	}
@@ -64,7 +68,7 @@ func (g *Grid) switchV4(x, y int) [][2]int {
 }
 
 func (g *Grid) switchV8(x, y int) [][2]int {
-	var coordsToSwitch [][2]int
+	coordsToSwitch := [][2]int{}
 	if g.checkOOB(x+1, y+1) {
 		coordsToSwitch = append(coordsToSwitch, [2]int{x + 1, y + 1})
 	}
@@ -80,12 +84,17 @@ func (g *Grid) switchV8(x, y int) [][2]int {
 	return coordsToSwitch
 }
 
-func (g *Grid) SwitchCell(x, y int, neighborhood []int) {
+func (g *Grid) GetGrid() []int {
+	return append([]int(nil), g.grid...)
+}
+
+func (g *Grid) Switch(dim int) []int {
+	x, y := g.coordFlatToCart(dim)
 	if !g.checkOOB(x, y) {
-		return
+		return g.grid
 	}
 	var coordsToSwitch [][2]int
-	for _, val := range neighborhood {
+	for _, val := range g.neighborhood {
 		switch val {
 		case 0:
 			coordsToSwitch = append(coordsToSwitch, [2]int{x, y})
@@ -96,9 +105,18 @@ func (g *Grid) SwitchCell(x, y int, neighborhood []int) {
 		}
 	}
 	for _, coord := range coordsToSwitch {
-		cx, cy := coord[0], coord[1]
-		g.grid[cx+g.cols*cy] = 1 - g.grid[cx+g.cols*cy]
+		g.grid[coord[0]+g.cols*coord[1]] = 1 - g.grid[coord[0]+g.cols*coord[1]]
 	}
+	return g.grid
+}
+
+func (g *Grid) CheckWin() bool {
+	sum := 0
+	for _, val := range g.grid {
+		sum += val
+	}
+	fmt.Printf("Switching (%d)\n", sum)
+	return sum == 0 || sum == g.rows*g.cols
 }
 
 func (g *Grid) PrettyPrintGrid() {

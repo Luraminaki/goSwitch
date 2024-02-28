@@ -8,6 +8,7 @@ import (
 
 func main() {
 	wx := webapp.NewWebApp()
+
 	wx.Server.POST("/toggleButton", wx.ToggleButton)
 	wx.Server.Logger.Fatal(wx.Server.Start(":10000"))
 
