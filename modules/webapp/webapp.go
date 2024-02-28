@@ -57,6 +57,8 @@ func NewWebApp() *WebAppX {
 	server := echo.New()
 	server.File("/", "webui/index.html")
 	server.File("/favicon.ico", "webui/favicon.ico")
+	server.File("/assets/style.css", "webui/assets/style.css")
+	server.File("/assets/htmx.min.js", "webui/assets/htmx.min.js")
 
 	webApp := &WebAppX{
 		Config:     &config,
@@ -82,6 +84,8 @@ func (wx *WebAppX) ToggleButton(c echo.Context) error {
 		resp.Error = "Params error: " + err.Error()
 		return c.JSON(http.StatusOK, resp)
 	}
+
+	fmt.Printf("Data recieved: %v\n", jsonMap)
 
 	pos, err := strconv.Atoi(fmt.Sprintf("%v", jsonMap["pos"]))
 
