@@ -74,14 +74,23 @@ func (wx *WebAppX) ToggleButton(c echo.Context) error {
 		Error:  "",
 	}
 
-	pos, err := strconv.Atoi(c.Param("pos"))
+	jsonMap := make(map[string]interface{})
+
+	err := json.NewDecoder(c.Request().Body).Decode(&jsonMap)
 	if err != nil {
 		resp.Status = "ERROR"
 		resp.Error = "Params error: " + err.Error()
 		return c.JSON(http.StatusOK, resp)
 	}
 
-	fmt.Printf("Switching (%d)\n\n", pos)
+	pos, err := strconv.Atoi(fmt.Sprintf("%v", jsonMap["pos"]))
+
+	if err != nil {
+		resp.Status = "ERROR"
+		resp.Error = "Params error: " + err.Error()
+		return c.JSON(http.StatusOK, resp)
+	}
+
 	wx.SwitchGame.Switch(pos)
 	wx.SwitchGame.PrettyPrintGrid()
 

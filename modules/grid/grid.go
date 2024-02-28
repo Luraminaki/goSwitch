@@ -115,7 +115,6 @@ func (g *Grid) CheckWin() bool {
 	for _, val := range g.grid {
 		sum += val
 	}
-	fmt.Printf("Switching (%d)\n", sum)
 	return sum == 0 || sum == g.rows*g.cols
 }
 
