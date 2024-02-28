@@ -2,12 +2,14 @@ package webapp
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strconv"
 
 	"encoding/json"
 	"net/http"
+	"text/template"
 
 	"github.com/labstack/echo/v4"
 
@@ -23,6 +25,29 @@ type Response struct {
 type Config struct {
 	Dim            int   `json:"Dim"`
 	ToggleSequence []int `json:"ToggleSequence"`
+}
+
+type Template struct {
+	Templates *template.Template
+}
+
+func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+	return t.Templates.ExecuteTemplate(w, name, data)
+}
+
+func NewTemplateRenderer(e *echo.Echo, paths ...string) {
+	tmpl := &template.Template{}
+	for i := range paths {
+		template.Must(tmpl.ParseGlob(paths[i]))
+	}
+	t := newTemplate(tmpl)
+	e.Renderer = t
+}
+
+func newTemplate(templates *template.Template) echo.Renderer {
+	return &Template{
+		Templates: templates,
+	}
 }
 
 type WebAppX struct {
@@ -55,10 +80,13 @@ func NewWebApp() *WebAppX {
 	switchGame.PrettyPrintGrid()
 
 	server := echo.New()
+
 	server.File("/", "webui/index.html")
 	server.File("/favicon.ico", "webui/favicon.ico")
 	server.File("/assets/style.css", "webui/assets/style.css")
 	server.File("/assets/htmx.min.js", "webui/assets/htmx.min.js")
+
+	NewTemplateRenderer(server, "webui/*.html")
 
 	webApp := &WebAppX{
 		Config:     &config,
@@ -67,6 +95,13 @@ func NewWebApp() *WebAppX {
 	}
 
 	return webApp
+}
+
+func (wx *WebAppX) InitGrid(c echo.Context) error {
+	res := map[string]interface{}{
+		"Name": "Luraminaki",
+	}
+	return c.Render(http.StatusOK, "index", res)
 }
 
 func (wx *WebAppX) ToggleButton(c echo.Context) error {
