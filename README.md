@@ -74,8 +74,8 @@ class Grid():
 
 
     def init_game(self) -> None:
-        r = 0
-        while r < self.rows:
+        self.grid = []
+        for r in range(self.rows):
             temp_row = self.rand.choices([0, 1], k=self.cols)
             self.grid = self.grid + temp_row.copy()
             r = r + 1
@@ -103,11 +103,14 @@ class Grid():
             if val == 0:
                 coords_to_switch = coords_to_switch + [[x, y]]
 
-            if val == 4:
+            elif val == 4:
                 coords_to_switch = coords_to_switch + self.switch_v4(x, y)
 
-            if val == 8:
+            elif val == 8:
                 coords_to_switch = coords_to_switch + self.switch_v8(x, y)
+
+            else:
+                continue
 
         for cx, cy in coords_to_switch:
             self.grid[cx + self.cols*cy] = int(not self.grid[cx + self.cols*cy])
