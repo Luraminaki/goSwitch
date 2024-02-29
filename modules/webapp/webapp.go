@@ -77,6 +77,9 @@ func NewWebApp() *WebAppX {
 	}
 
 	switchGame := grid.NewGrid(config.Dim, config.ToggleSequence)
+
+	fmt.Printf("Possible solution: %v\n", switchGame.GetPossibleSolution())
+
 	switchGame.PrettyPrintGrid()
 
 	server := echo.New()

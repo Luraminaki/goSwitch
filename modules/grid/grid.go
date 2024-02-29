@@ -3,21 +3,21 @@ package grid
 import (
 	"fmt"
 	"math/rand"
+	"sort"
 	"time"
 )
 
 type Grid struct {
-	dim          int
 	rows         int
 	cols         int
 	neighborhood []int
 	grid         []int
+	solution     []int
 	rand         *rand.Rand
 }
 
 func NewGrid(dim int, neighborhood []int) *Grid {
 	g := &Grid{
-		dim:          dim,
 		rows:         dim,
 		cols:         dim,
 		neighborhood: neighborhood,
@@ -32,10 +32,26 @@ func NewGrid(dim int, neighborhood []int) *Grid {
 }
 
 func (g *Grid) initGame() {
-	for r := 0; r < g.rows; r++ {
-		for c := 0; c < g.cols; c++ {
-			g.grid[c+r*g.cols] = g.rand.Intn(2)
-		}
+	gridSize := g.rows * g.cols
+	hits := make([]int, gridSize)
+
+	start := g.rand.Intn(2)
+
+	for pos := range gridSize {
+		g.grid[pos] = start
+		hits[pos] = pos
+	}
+
+	g.rand.Shuffle(gridSize, func(i, j int) {
+		hits[i], hits[j] = hits[j], hits[i]
+	})
+
+	randIndex := rand.Intn(gridSize)
+	g.solution = hits[:randIndex]
+	sort.Ints(g.solution)
+
+	for _, hit := range g.solution {
+		g.Switch(hit)
 	}
 }
 
@@ -43,7 +59,7 @@ func (g *Grid) coordFlatToCart(dim int) (int, int) {
 	if dim >= len(g.grid) {
 		return -1, -1
 	}
-	return dim % g.dim, dim / g.dim
+	return dim % g.cols, dim / g.rows
 }
 
 func (g *Grid) checkOOB(x, y int) bool {
@@ -64,6 +80,7 @@ func (g *Grid) switchV4(x, y int) [][2]int {
 	if g.checkOOB(x, y-1) {
 		coordsToSwitch = append(coordsToSwitch, [2]int{x, y - 1})
 	}
+
 	return coordsToSwitch
 }
 
@@ -81,18 +98,17 @@ func (g *Grid) switchV8(x, y int) [][2]int {
 	if g.checkOOB(x-1, y+1) {
 		coordsToSwitch = append(coordsToSwitch, [2]int{x - 1, y + 1})
 	}
+
 	return coordsToSwitch
 }
 
-func (g *Grid) GetGrid() []int {
-	return append([]int(nil), g.grid...)
-}
+func (g *Grid) Switch(pos int) []int {
+	x, y := g.coordFlatToCart(pos)
 
-func (g *Grid) Switch(dim int) []int {
-	x, y := g.coordFlatToCart(dim)
 	if !g.checkOOB(x, y) {
 		return g.grid
 	}
+
 	var coordsToSwitch [][2]int
 	for _, val := range g.neighborhood {
 		switch val {
@@ -108,6 +124,14 @@ func (g *Grid) Switch(dim int) []int {
 		g.grid[coord[0]+g.cols*coord[1]] = 1 - g.grid[coord[0]+g.cols*coord[1]]
 	}
 	return g.grid
+}
+
+func (g *Grid) GetGrid() []int {
+	return append([]int(nil), g.grid...)
+}
+
+func (g *Grid) GetPossibleSolution() []int {
+	return append([]int(nil), g.solution...)
 }
 
 func (g *Grid) CheckWin() bool {
