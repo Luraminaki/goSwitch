@@ -61,7 +61,7 @@ func Trace(debug bool) string {
 	return line
 }
 
-func ProcessRequest(c echo.Context) (Response, map[string]interface{}) {
+func ProcessRequestJson(c echo.Context) (Response, map[string]interface{}) {
 	resp := Response{
 		Status: "SUCCESS",
 		Win:    false,
@@ -74,6 +74,25 @@ func ProcessRequest(c echo.Context) (Response, map[string]interface{}) {
 	if err != nil {
 		resp.Status = "ERROR"
 		resp.Error = "Params error: " + err.Error()
+	}
+
+	return resp, jsonMap
+}
+
+func ProcessRequestForm(c echo.Context) (Response, map[string]interface{}) {
+	resp := Response{
+		Status: "SUCCESS",
+		Win:    false,
+		Error:  "",
+	}
+
+	jsonMap := make(map[string]interface{})
+
+	form, _ := c.FormParams()
+	for k, v := range form {
+		if len(v) > 0 {
+			jsonMap[k] = v[0]
+		}
 	}
 
 	return resp, jsonMap
@@ -163,7 +182,7 @@ func (wx *WebAppX) TestHTMX(c echo.Context) error {
 func (wx *WebAppX) Reset(c echo.Context) error {
 	line := Trace(false)
 
-	resp, jsonMap := ProcessRequest(c)
+	resp, jsonMap := ProcessRequestForm(c)
 
 	if resp.Status == "ERROR" {
 		return c.JSON(http.StatusOK, resp)
@@ -234,7 +253,7 @@ func (wx *WebAppX) RevertMove(c echo.Context) error {
 func (wx *WebAppX) Switch(c echo.Context) error {
 	line := Trace(false)
 
-	resp, jsonMap := ProcessRequest(c)
+	resp, jsonMap := ProcessRequestJson(c)
 
 	if resp.Status == "ERROR" {
 		return c.JSON(http.StatusOK, resp)
