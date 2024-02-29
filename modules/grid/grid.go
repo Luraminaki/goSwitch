@@ -13,6 +13,7 @@ type Grid struct {
 	neighborhood []int
 	grid         []int
 	solution     []int
+	moveHistory  []int
 	rand         *rand.Rand
 }
 
@@ -132,6 +133,14 @@ func (g *Grid) GetGrid() []int {
 
 func (g *Grid) GetPossibleSolution() []int {
 	return append([]int(nil), g.solution...)
+}
+
+func (g *Grid) GetPreviousMoves() []int {
+	return append([]int(nil), g.moveHistory...)
+}
+
+func (g *Grid) SetPreviousMoves(moveHistory []int) {
+	g.moveHistory = moveHistory
 }
 
 func (g *Grid) CheckWin() bool {
