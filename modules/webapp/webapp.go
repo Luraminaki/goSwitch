@@ -2,132 +2,31 @@ package webapp
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"os"
-	"runtime"
 	"strconv"
 
 	"encoding/json"
 	"net/http"
-	"text/template"
 
 	"github.com/labstack/echo/v4"
 
 	grid "goSwitch/modules/grid"
+	template "goSwitch/modules/template"
+	utils "goSwitch/modules/utils"
 )
 
 // STRUCTS
-
-type Response struct {
-	Status string
-	Win    bool
-	Error  string
-}
 
 type Config struct {
 	Dim            int   `json:"Dim"`
 	ToggleSequence []int `json:"ToggleSequence"`
 }
 
-type Template struct {
-	Templates *template.Template
-}
-
 type WebAppX struct {
 	Config     *Config
 	SwitchGame *grid.Grid
 	Server     *echo.Echo
-}
-
-// UTILS
-
-func Trace(debug bool) string {
-	pc := make([]uintptr, 15)
-	n := runtime.Callers(2, pc)
-	frames := runtime.CallersFrames(pc[:n])
-	frame, _ := frames.Next()
-
-	var line string
-
-	if debug {
-		line = fmt.Sprintf("%s:%d -- %s --", frame.File, frame.Line, frame.Function)
-		fmt.Println(line)
-	} else {
-		line = fmt.Sprintf("%s --", frame.Function)
-		fmt.Println(line)
-	}
-
-	return line
-}
-
-func ProcessRequestJson(c echo.Context) (Response, map[string]interface{}) {
-	resp := Response{
-		Status: "SUCCESS",
-		Win:    false,
-		Error:  "",
-	}
-
-	jsonMap := make(map[string]interface{})
-
-	err := json.NewDecoder(c.Request().Body).Decode(&jsonMap)
-	if err != nil {
-		resp.Status = "ERROR"
-		resp.Error = "Params error: " + err.Error()
-	}
-
-	return resp, jsonMap
-}
-
-func ProcessRequestForm(c echo.Context) (Response, map[string]interface{}) {
-	resp := Response{
-		Status: "SUCCESS",
-		Win:    false,
-		Error:  "",
-	}
-
-	jsonMap := make(map[string]interface{})
-
-	form, _ := c.FormParams()
-	for k, v := range form {
-		switch len(v) {
-		case 0:
-			continue
-		default:
-			jsonMap[k] = v
-		}
-	}
-
-	return resp, jsonMap
-}
-
-func ConvertSlice[E any](in []any) (out []E) {
-	out = make([]E, 0, len(in))
-	for _, v := range in {
-		out = append(out, v.(E))
-	}
-	return
-}
-
-// TEMPLATE
-
-func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
-	return t.Templates.ExecuteTemplate(w, name, data)
-}
-
-func NewTemplateRenderer(e *echo.Echo, paths ...string) {
-	tmpl := &template.Template{}
-	for i := range paths {
-		template.Must(tmpl.ParseGlob(paths[i]))
-	}
-	t := newTemplate(tmpl)
-	e.Renderer = t
-}
-
-func newTemplate(templates *template.Template) echo.Renderer {
-	return &Template{
-		Templates: templates,
-	}
 }
 
 // WebApp
@@ -153,7 +52,7 @@ func NewWebApp() *WebAppX {
 	}
 
 	switchGame := grid.NewGrid(config.Dim, config.ToggleSequence)
-	fmt.Printf("Possible solution: %v\n", switchGame.GetPossibleSolution())
+	log.Printf("Possible solution: %v\n", switchGame.GetPossibleSolution())
 	switchGame.PrettyPrintGrid()
 
 	server := echo.New()
@@ -162,7 +61,7 @@ func NewWebApp() *WebAppX {
 	server.File("/assets/style.css", "webui/assets/style.css")
 	server.File("/assets/htmx.min.js", "webui/assets/htmx.min.js")
 
-	NewTemplateRenderer(server, "webui/*.html")
+	template.NewTemplateRenderer(server, "webui/*.html")
 
 	webApp := &WebAppX{
 		Config:     &config,
@@ -174,7 +73,7 @@ func NewWebApp() *WebAppX {
 }
 
 func (wx *WebAppX) TestHTMX(c echo.Context) error {
-	Trace(false)
+	utils.Trace(false)
 
 	res := map[string]interface{}{
 		"Name": "Luraminaki",
@@ -183,9 +82,9 @@ func (wx *WebAppX) TestHTMX(c echo.Context) error {
 }
 
 func (wx *WebAppX) Reset(c echo.Context) error {
-	line := Trace(false)
+	line := utils.Trace(false)
 
-	resp, jsonMap := ProcessRequestForm(c)
+	resp, jsonMap := utils.ProcessRequestForm(c)
 
 	if resp.Status == "ERROR" {
 		return c.JSON(http.StatusOK, resp)
@@ -240,9 +139,9 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 }
 
 func (wx *WebAppX) RevertMove(c echo.Context) error {
-	line := Trace(false)
+	line := utils.Trace(false)
 
-	resp := Response{
+	resp := utils.Response{
 		Status: "SUCCESS",
 		Win:    false,
 		Error:  "",
@@ -268,9 +167,9 @@ func (wx *WebAppX) RevertMove(c echo.Context) error {
 }
 
 func (wx *WebAppX) Switch(c echo.Context) error {
-	line := Trace(false)
+	line := utils.Trace(false)
 
-	resp, jsonMap := ProcessRequestJson(c)
+	resp, jsonMap := utils.ProcessRequestJson(c)
 
 	if resp.Status == "ERROR" {
 		return c.JSON(http.StatusOK, resp)
