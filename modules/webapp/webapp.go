@@ -40,10 +40,6 @@ func NewWebApp() *WebAppX {
 
 	defer jsonFile.Close()
 
-	if err != nil {
-		log.Fatal("Error when reading JSON file: ", err.Error())
-	}
-
 	var config Config
 	err = json.NewDecoder(jsonFile).Decode(&config)
 

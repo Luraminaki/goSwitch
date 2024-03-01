@@ -26,26 +26,9 @@
 
     <iframe name="hiddenFrame" class="hide"></iframe>
 
-    <fieldset>
-      <legend>Grid Configuration</legend>
-      <form action="http://localhost:10000/reset", method="POST" target="hiddenFrame">
-        <label for="size">Grid Size: 
-          <input type="number" name="dim" id="size" value="3"/>
-        </label>
-
-        <br/>
-
-        <label for="neighbors">Pattern: 
-          0<input type="checkbox" name="neighborhood" id="neighbors0" value="0" checked/>
-          4<input type="checkbox" name="neighborhood" id="neighbors4" value="4" checked/>
-          8<input type="checkbox" name="neighborhood" id="neighbors8" value="8"/>
-        </label>
-
-        <br/>
-
-        <input type="submit" value="Reset"/>
-      </form>
-    </fieldset>
+    <div id="gridConfiguration">
+      {{ template "gridConfiguration" . }}
+    </div>
 
     <script src="./assets/htmx.min.js"></script>
   </body>
