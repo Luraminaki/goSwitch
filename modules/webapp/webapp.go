@@ -90,8 +90,11 @@ func ProcessRequestForm(c echo.Context) (Response, map[string]interface{}) {
 
 	form, _ := c.FormParams()
 	for k, v := range form {
-		if len(v) > 0 {
-			jsonMap[k] = v[0]
+		switch len(v) {
+		case 0:
+			continue
+		default:
+			jsonMap[k] = v
 		}
 	}
 
@@ -190,7 +193,7 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 
 	log.Printf("%s Data recieved: %v\n", line, jsonMap)
 
-	dim, err := strconv.Atoi(fmt.Sprintf("%v", jsonMap["dim"]))
+	dim, err := strconv.Atoi(fmt.Sprintf("%v", jsonMap["dim"].([]string)[0]))
 	if err != nil {
 		resp.Status = "ERROR"
 		resp.Error = "Params error: " + err.Error()
@@ -199,7 +202,7 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 		return c.JSON(http.StatusOK, resp)
 	}
 
-	neigh := jsonMap["neighborhood"]
+	neigh := jsonMap["neighborhood"].([]string)
 	if neigh == nil {
 		resp.Status = "ERROR"
 		resp.Error = "Params error: 'neighborhood' key missing"
@@ -208,11 +211,17 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 		return c.JSON(http.StatusOK, resp)
 	}
 
-	patterns := ConvertSlice[float64](neigh.([]interface{}))
-	neighborhood := make([]int, len(patterns))
+	var neighborhood = []int{}
+	for _, i := range neigh {
+		j, err := strconv.Atoi(i)
+		if err != nil {
+			resp.Status = "ERROR"
+			resp.Error = "Params error: " + err.Error()
+			log.Printf("%s %s", line, resp.Error)
 
-	for i, pat := range patterns {
-		neighborhood[i] = int(pat)
+			return c.JSON(http.StatusOK, resp)
+		}
+		neighborhood = append(neighborhood, j)
 	}
 
 	wx.SwitchGame = grid.NewGrid(dim, neighborhood)
