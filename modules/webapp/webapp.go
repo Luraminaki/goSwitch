@@ -202,6 +202,14 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 		return c.JSON(http.StatusOK, resp)
 	}
 
+	if dim < 2 {
+		resp.Status = "ERROR"
+		resp.Error = "Params error: dim MUST be equal or higher than 2"
+		log.Printf("%s %s", line, resp.Error)
+
+		return c.JSON(http.StatusOK, resp)
+	}
+
 	neigh := jsonMap["neighborhood"].([]string)
 	if neigh == nil {
 		resp.Status = "ERROR"
