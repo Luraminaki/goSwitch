@@ -1,5 +1,4 @@
 {
-    "Rows": 3,
-    "Cols": 3,
+    "Dim": 3,
     "ToggleSequence": [0, 4]
 }
