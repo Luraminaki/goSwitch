@@ -4,7 +4,9 @@ Couple of years ago (back in early 2022), a friend asked me to give him a hand f
 
 Being a complete noob in `Kotlin`, I whipped up a [python draft](#python-draft) script in order to illustrate how I'd proceed...
 
-Fast forward to 2024, after recieving some UIX advices from a former colleague and friend for a [side project](https://github.com/Luraminaki/pySET), he suggested me to give a try to `Go`... And for some reason, this game from 2022 just popped in my brain... So... Here `Go`es nothing I guess... :D
+Fast forward to 2024, after recieving some UIX advices from a former colleague and friend for a [side project](https://github.com/Luraminaki/pySET), he suggested me to give a try to `Go` and `HTMX`... And for some reason, this game from 2022 just popped in my brain... So... Here `Go`es nothing I guess... :D
+
+_although some parts could have been a lot simpler, had I used some `JS`, I feel that it would have defeated the whole purpose of this project which was to stick to `Go` and `HTMX` as much as possible..._
 
 ## VERSIONS
 
