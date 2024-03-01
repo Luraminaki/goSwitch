@@ -9,12 +9,6 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-type Response struct {
-	Status string
-	Win    bool
-	Error  string
-}
-
 func Trace(debug bool) string {
 	pc := make([]uintptr, 15)
 	n := runtime.Callers(2, pc)
@@ -34,35 +28,54 @@ func Trace(debug bool) string {
 	return line
 }
 
-func ProcessRequestJson(c echo.Context) (Response, map[string]interface{}) {
-	resp := Response{
-		Status: "SUCCESS",
-		Win:    false,
-		Error:  "",
+func ProcessRequestJson(c echo.Context) (map[string]interface{}, map[string]interface{}) {
+	resp := map[string]interface{}{
+		"Status": "SUCCESS",
+		"Error":  "",
 	}
 
 	jsonMap := make(map[string]interface{})
 
 	err := json.NewDecoder(c.Request().Body).Decode(&jsonMap)
 	if err != nil {
-		resp.Status = "ERROR"
-		resp.Error = "Params error: " + err.Error()
+		resp["Status"] = "ERROR"
+		resp["Error"] = "Params error: " + err.Error()
 	}
 
 	return resp, jsonMap
 }
 
-func ProcessRequestForm(c echo.Context) (Response, map[string]interface{}) {
-	resp := Response{
-		Status: "SUCCESS",
-		Win:    false,
-		Error:  "",
+func ProcessRequestForm(c echo.Context) (map[string]interface{}, map[string]interface{}) {
+	resp := map[string]interface{}{
+		"Status": "SUCCESS",
+		"Error":  "",
 	}
 
 	jsonMap := make(map[string]interface{})
 
 	form, _ := c.FormParams()
 	for k, v := range form {
+		switch len(v) {
+		case 0:
+			continue
+		default:
+			jsonMap[k] = v
+		}
+	}
+
+	return resp, jsonMap
+}
+
+func ProcessRequestQuery(c echo.Context) (map[string]interface{}, map[string]interface{}) {
+	resp := map[string]interface{}{
+		"Status": "SUCCESS",
+		"Error":  "",
+	}
+
+	jsonMap := make(map[string]interface{})
+
+	query := c.QueryParams()
+	for k, v := range query {
 		switch len(v) {
 		case 0:
 			continue

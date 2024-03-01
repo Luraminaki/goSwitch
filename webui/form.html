@@ -1,7 +1,7 @@
 {{define "gridConfiguration"}}
 <fieldset>
   <legend>Grid Configuration</legend>
-  <form target="hiddenFrame">
+  <form>
     <label for="size">Grid Size: 
       <input type="number" name="dim" id="size" value="3"/>
     </label>
@@ -16,7 +16,7 @@
 
     <br/>
 
-    <input hx-post="/reset" type="submit" value="Reset" hx-swap="none"/>
+    <button hx-post="/reset" hx-target="#goSwitch">Reset</button>
   </form>
 </fieldset>
 {{end}}

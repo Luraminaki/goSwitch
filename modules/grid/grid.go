@@ -8,8 +8,8 @@ import (
 )
 
 type Grid struct {
-	rows         int
-	cols         int
+	Rows         int
+	Cols         int
 	neighborhood []int
 	grid         []int
 	solution     []int
@@ -19,8 +19,8 @@ type Grid struct {
 
 func NewGrid(dim int, neighborhood []int) *Grid {
 	g := &Grid{
-		rows:         dim,
-		cols:         dim,
+		Rows:         dim,
+		Cols:         dim,
 		neighborhood: neighborhood,
 		grid:         make([]int, dim*dim),
 		rand:         rand.New(rand.NewSource(time.Now().UnixNano())),
@@ -33,7 +33,7 @@ func NewGrid(dim int, neighborhood []int) *Grid {
 }
 
 func (g *Grid) initGame() {
-	gridSize := g.rows * g.cols
+	gridSize := g.Rows * g.Cols
 	hits := make([]int, gridSize)
 
 	start := g.rand.Intn(2)
@@ -60,11 +60,11 @@ func (g *Grid) coordFlatToCart(dim int) (int, int) {
 	if dim >= len(g.grid) {
 		return -1, -1
 	}
-	return dim % g.cols, dim / g.rows
+	return dim % g.Cols, dim / g.Rows
 }
 
 func (g *Grid) checkOOB(x, y int) bool {
-	return (0 <= x && x < g.cols) && (0 <= y && y < g.rows)
+	return (0 <= x && x < g.Cols) && (0 <= y && y < g.Rows)
 }
 
 func (g *Grid) switchV4(x, y int) [][2]int {
@@ -122,13 +122,17 @@ func (g *Grid) Switch(pos int) []int {
 		}
 	}
 	for _, coord := range coordsToSwitch {
-		g.grid[coord[0]+g.cols*coord[1]] = 1 - g.grid[coord[0]+g.cols*coord[1]]
+		g.grid[coord[0]+g.Cols*coord[1]] = 1 - g.grid[coord[0]+g.Cols*coord[1]]
 	}
 	return g.grid
 }
 
-func (g *Grid) GetGrid() []int {
-	return append([]int(nil), g.grid...)
+func (g *Grid) GetGrid() [][]int {
+	customGrid := make([][]int, len(g.grid)/g.Rows)
+	for idx := 0; idx < len(g.grid)/g.Rows; idx++ {
+		customGrid[idx] = g.grid[g.Cols*idx : (idx+1)*g.Cols]
+	}
+	return customGrid
 }
 
 func (g *Grid) GetPossibleSolution() []int {
@@ -148,14 +152,14 @@ func (g *Grid) CheckWin() bool {
 	for _, val := range g.grid {
 		sum += val
 	}
-	return sum == 0 || sum == g.rows*g.cols
+	return sum == 0 || sum == g.Rows*g.Cols
 }
 
 func (g *Grid) PrettyPrintGrid() {
 	fmt.Println("Game Layout:")
-	for r := 0; r < g.rows; r++ {
-		for c := 0; c < g.cols; c++ {
-			fmt.Printf("%d ", g.grid[c+r*g.cols])
+	for r := 0; r < g.Rows; r++ {
+		for c := 0; c < g.Cols; c++ {
+			fmt.Printf("%d ", g.grid[c+r*g.Cols])
 		}
 		fmt.Println()
 	}

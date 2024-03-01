@@ -68,13 +68,26 @@ func NewWebApp() *WebAppX {
 	return webApp
 }
 
-func (wx *WebAppX) TestHTMX(c echo.Context) error {
-	utils.Trace(false)
+func (wx *WebAppX) gameState() map[string]interface{} {
+	resp := map[string]interface{}{
+		"Status": "SUCCESS",
+		"Error":  "",
+	}
 
 	res := map[string]interface{}{
-		"Name": "Luraminaki",
+		"Board":    wx.SwitchGame.GetGrid(),
+		"Solution": wx.SwitchGame.GetPossibleSolution(),
+		"Moves":    wx.SwitchGame.GetPreviousMoves(),
+		"Win":      wx.SwitchGame.CheckWin(),
+		"Response": resp,
 	}
-	return c.Render(http.StatusOK, "index", res)
+	return res
+}
+
+func (wx *WebAppX) InitHTMX(c echo.Context) error {
+	utils.Trace(false)
+
+	return c.Render(http.StatusOK, "index", wx.gameState())
 }
 
 func (wx *WebAppX) Reset(c echo.Context) error {
@@ -82,47 +95,57 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 
 	resp, jsonMap := utils.ProcessRequestForm(c)
 
-	if resp.Status == "ERROR" {
-		return c.JSON(http.StatusOK, resp)
+	if resp["Status"] == "ERROR" {
+		res := wx.gameState()
+		res["Response"] = resp
+		return c.Render(http.StatusOK, "index", res)
 	}
 
 	log.Printf("%s Data recieved: %v\n", line, jsonMap)
 
 	dim, err := strconv.Atoi(fmt.Sprintf("%v", jsonMap["dim"].([]string)[0]))
 	if err != nil {
-		resp.Status = "ERROR"
-		resp.Error = "Params error: " + err.Error()
-		log.Printf("%s %s", line, resp.Error)
+		resp["Status"] = "ERROR"
+		resp["Error"] = "Params error: " + err.Error()
+		log.Printf("%s %s", line, resp["Error"])
 
-		return c.JSON(http.StatusOK, resp)
+		res := wx.gameState()
+		res["Response"] = resp
+		return c.Render(http.StatusOK, "index", res)
 	}
 
 	if dim < 2 {
-		resp.Status = "ERROR"
-		resp.Error = "Params error: dim MUST be equal or higher than 2"
-		log.Printf("%s %s", line, resp.Error)
+		resp["Status"] = "ERROR"
+		resp["Error"] = "Params error: dim MUST be equal or higher than 2"
+		log.Printf("%s %s", line, resp["Error"])
 
-		return c.JSON(http.StatusOK, resp)
+		res := wx.gameState()
+		res["Response"] = resp
+		return c.Render(http.StatusOK, "index", res)
 	}
 
 	neigh := jsonMap["neighborhood"].([]string)
 	if neigh == nil {
-		resp.Status = "ERROR"
-		resp.Error = "Params error: 'neighborhood' key missing"
-		log.Printf("%s %s", line, resp.Error)
+		resp["Status"] = "ERROR"
+		resp["Error"] = "Params error: 'neighborhood' key missing"
+		log.Printf("%s %s", line, resp["Error"])
 
-		return c.JSON(http.StatusOK, resp)
+		res := wx.gameState()
+		res["Response"] = resp
+		return c.Render(http.StatusOK, "index", res)
 	}
 
 	var neighborhood = []int{}
 	for _, i := range neigh {
 		j, err := strconv.Atoi(i)
 		if err != nil {
-			resp.Status = "ERROR"
-			resp.Error = "Params error: " + err.Error()
-			log.Printf("%s %s", line, resp.Error)
+			resp["Status"] = "ERROR"
+			resp["Error"] = "Params error: " + err.Error()
+			log.Printf("%s %s", line, resp["Error"])
 
-			return c.JSON(http.StatusOK, resp)
+			res := wx.gameState()
+			res["Response"] = resp
+			return c.Render(http.StatusOK, "index", res)
 		}
 		neighborhood = append(neighborhood, j)
 	}
@@ -131,25 +154,29 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 	log.Printf("%s Possible solution: %v\n", line, wx.SwitchGame.GetPossibleSolution())
 	wx.SwitchGame.PrettyPrintGrid()
 
-	return c.JSON(http.StatusOK, resp)
+	res := wx.gameState()
+	res["Response"] = resp
+	return c.Render(http.StatusOK, "index", res)
 }
 
 func (wx *WebAppX) RevertMove(c echo.Context) error {
 	line := utils.Trace(false)
 
-	resp := utils.Response{
-		Status: "SUCCESS",
-		Win:    false,
-		Error:  "",
+	resp := map[string]interface{}{
+		"Status": "SUCCESS",
+		"Error":  "",
 	}
 
 	moves := wx.SwitchGame.GetPreviousMoves()
 	if moves == nil {
-		resp.Status = "ERROR"
-		resp.Error = "Not allowed: Nothing to revert to"
-		log.Printf("%s %s", line, resp.Error)
+		resp["Status"] = "ERROR"
+		resp["Error"] = "Not allowed: Nothing to revert to"
 
-		return c.JSON(http.StatusOK, resp)
+		log.Printf("%s %s", line, resp["Error"])
+
+		res := wx.gameState()
+		res["Response"] = resp
+		return c.Render(http.StatusOK, "index", res)
 	}
 
 	wx.SwitchGame.Switch(moves[len(moves)-1])
@@ -159,29 +186,49 @@ func (wx *WebAppX) RevertMove(c echo.Context) error {
 	log.Printf("%s Move History: %v\n", line, moves)
 	wx.SwitchGame.PrettyPrintGrid()
 
-	return c.JSON(http.StatusOK, resp)
+	res := wx.gameState()
+	res["Response"] = resp
+	return c.Render(http.StatusOK, "index", res)
 }
 
 func (wx *WebAppX) Switch(c echo.Context) error {
 	line := utils.Trace(false)
 
-	resp, jsonMap := utils.ProcessRequestJson(c)
+	resp, jsonMap := utils.ProcessRequestQuery(c)
 
-	if resp.Status == "ERROR" {
-		return c.JSON(http.StatusOK, resp)
+	if resp["Status"] == "ERROR" {
+		res := wx.gameState()
+		res["Response"] = resp
+		return c.Render(http.StatusOK, "index", res)
 	}
 
 	log.Printf("%s Data recieved: %v\n", line, jsonMap)
 
-	pos, err := strconv.Atoi(fmt.Sprintf("%v", jsonMap["pos"]))
+	row, err := strconv.Atoi(fmt.Sprintf("%v", jsonMap["row"].([]string)[0]))
 
 	if err != nil {
-		resp.Status = "ERROR"
-		resp.Error = "Params error: " + err.Error()
-		log.Printf("%s %s", line, resp.Error)
+		resp["Status"] = "ERROR"
+		resp["Error"] = "Params error: " + err.Error()
+		log.Printf("%s %s", line, resp["Error"])
 
-		return c.JSON(http.StatusOK, resp)
+		res := wx.gameState()
+		res["Response"] = resp
+		return c.Render(http.StatusOK, "index", res)
 	}
+
+	col, err := strconv.Atoi(fmt.Sprintf("%v", jsonMap["col"].([]string)[0]))
+
+	if err != nil {
+		resp["Status"] = "ERROR"
+		resp["Error"] = "Params error: " + err.Error()
+		log.Printf("%s %s", line, resp["Error"])
+
+		res := wx.gameState()
+		res["Response"] = resp
+		return c.Render(http.StatusOK, "index", res)
+	}
+
+	pos := (wx.SwitchGame.Rows * row) + col
 
 	wx.SwitchGame.Switch(pos)
 	moves := wx.SwitchGame.GetPreviousMoves()
@@ -191,12 +238,14 @@ func (wx *WebAppX) Switch(c echo.Context) error {
 	log.Printf("%s Move History: %v\n", line, moves)
 	wx.SwitchGame.PrettyPrintGrid()
 
-	resp.Win = wx.SwitchGame.CheckWin()
-	if resp.Win {
+	res := wx.gameState()
+
+	if res["Win"].(bool) {
 		log.Printf("%s Did I Win: Yes", line)
 	} else {
 		log.Printf("%s Did I Win: No", line)
 	}
 
-	return c.JSON(http.StatusOK, resp)
+	res["Response"] = resp
+	return c.Render(http.StatusOK, "index", res)
 }
