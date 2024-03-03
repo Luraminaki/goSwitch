@@ -28,7 +28,7 @@ _although some parts could have been a lot simpler, had I used some `JS`, I feel
 
 For `Go` installation, consult the following [link](https://go.dev/)
 
-Once done, open a new terminal in the directory `goSwitch` and type the following command to run the project:
+Once done, open a new terminal in the directory `goSwitch`, type the following command to run the project, and you can then open your favorite web browser to [start-the-game](http://localhost:10000):
 
 ```sh
 go run .
