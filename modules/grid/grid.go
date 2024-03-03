@@ -81,7 +81,6 @@ func (g *Grid) switchV4(x, y int) [][2]int {
 	if g.checkOOB(x, y-1) {
 		coordsToSwitch = append(coordsToSwitch, [2]int{x, y - 1})
 	}
-
 	return coordsToSwitch
 }
 
@@ -99,7 +98,6 @@ func (g *Grid) switchV8(x, y int) [][2]int {
 	if g.checkOOB(x-1, y+1) {
 		coordsToSwitch = append(coordsToSwitch, [2]int{x - 1, y + 1})
 	}
-
 	return coordsToSwitch
 }
 

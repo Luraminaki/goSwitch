@@ -13,7 +13,7 @@ func main() {
 	wx.Server.POST("/switch", wx.Switch)
 	wx.Server.GET("/revert", wx.RevertMove)
 	wx.Server.GET("/", wx.InitHTMX)
-	wx.Server.Logger.Fatal(wx.Server.Start(":10000"))
+	wx.Server.Logger.Fatal(wx.Server.Start(":" + wx.Config.Port))
 
 	os.Exit(0)
 }

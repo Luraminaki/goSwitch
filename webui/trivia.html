@@ -1,0 +1,29 @@
+{{ define "trivia" }}
+<fieldset>
+  <legend>Game Trivia</legend>
+
+  <form>
+    {{ if .Config.Cheat }}
+    <label for="cheat" class="trivia-is-flex">Winning Combination: 
+      <textarea type="text" name="cheat" id="trivia-cheat" disabled>{{ .Solution }}</textarea>
+    </label>
+    {{ end }}
+
+    <br/>
+
+    <label for="history" class="trivia-is-flex">Move History: 
+      <textarea type="text" name="history" id="trivia-history" disabled>{{ .Moves }}</textarea>
+    </label>
+
+    <br/>
+
+    <label for="win" class="trivia-is-flex">Game Won: 
+      <input type="text" name="win" id="trivia-win" value="{{ if .Win }} Yes {{ else }} No {{ end }}" disabled/>
+    </label>
+
+    <br/>
+
+    <button hx-get="/revert" hx-target="#goSwitch">Undo</button>
+  </form>
+</fieldset>
+{{ end }}

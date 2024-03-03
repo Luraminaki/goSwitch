@@ -1,4 +1,7 @@
 {
+    "Port": "10000",
+    "Cheat": false,
     "Dim": 3,
-    "ToggleSequence": [0, 4]
+    "ToggleSequence": [true, true, false],
+    "AvailableToggleSequence": [0, 4, 8]
 }
