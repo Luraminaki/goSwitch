@@ -1,0 +1,17 @@
+{{ define "response" }}
+<fieldset>
+  <legend>Request Answers</legend>
+
+  <form>
+    <label for="status" class="response-is-flex">Status:
+      <input type="text" name="status" id="response-status" value="{{ .Response.Status }}" disabled/>
+    </label>
+
+    <br/>
+
+    <label for="error" class="response-is-flex">Error:
+      <textarea type="text" name="error" id="response-error" disabled>{{ .Response.Error }}</textarea>
+    </label>
+  </form>
+</fieldset>
+{{ end }}

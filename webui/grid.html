@@ -1,38 +1,20 @@
-{{define "grid"}}
-<div class="game-canvas">
+{{ define "grid" }}
+<fieldset>
+  <legend>Game</legend>
 
-  <fieldset>
-    <legend>Game Trivia</legend>
-    <p>Winning Combination: {{.Solution}}</p>
-    <p>Move History: {{.Moves}}</p>
-    <p>Game Won: {{.Win}}</p>
-    <button hx-get="/revert" hx-target="#goSwitch">Undo</button>
-  </fieldset>
-
-  <fieldset>
-    <legend>Game</legend>
-
-    <div class="game">  
-      <div class="board" id="game-board">
-          {{range $i, $row := .Board}}
-          <div class="board-row">
-              {{range $j, $cell := $row}}
-              <button class="square"
-                      hx-post="/switch?row={{$i}}&col={{$j}}"
-                      hx-target="#goSwitch">{{$cell}}
-              </button>
-              {{end}}
+  <div class="grid-game">  
+    <div>
+        {{ range $i, $row := .Board }}
+          <div>
+              {{ range $j, $cell := $row }}
+                <button class="grid-square"
+                        hx-post="/switch?row={{ $i }}&col={{ $j }}"
+                        hx-target="#goSwitch">{{ $cell }}
+                </button>
+              {{ end }}
           </div>
-          {{end}}
-      </div>
+        {{ end }}
     </div>
-  </fieldset>
-
-  <fieldset>
-    <legend>Request Answers</legend>
-    <p>Status: {{.Response.Status}}</p>
-    <p>Error: {{.Response.Error}}</p>
-  </fieldset>
-
-</div>
-{{end}}
+  </div>
+</fieldset>
+{{ end }}

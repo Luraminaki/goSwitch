@@ -1,22 +1,35 @@
-{{define "gridConfiguration"}}
+{{ define "configuration" }}
 <fieldset>
   <legend>Grid Configuration</legend>
+
   <form>
-    <label for="size">Grid Size: 
-      <input type="number" name="dim" id="size" value="3"/>
+    <label for="size" class="configuration-is-flex">Grid Size: 
+      <input type="number" name="dim" id="config-size" value="{{ .Config.Dim }}"/>
     </label>
 
     <br/>
 
-    <label for="neighbors">Pattern: 
-      0<input type="checkbox" name="neighborhood" id="neighbors0" value="0" checked/>
-      4<input type="checkbox" name="neighborhood" id="neighbors4" value="4" checked/>
-      8<input type="checkbox" name="neighborhood" id="neighbors8" value="8"/>
+    <label for="neighbors" class="configuration-is-flex">Pattern:
+      <div>
+        {{ $temp := .Config.ToggleSequence }}
+
+        {{ range $idx, $val := .Config.AvailableToggleSequence }}
+          {{ $val }}<input type="checkbox" name="neighborhood" value="{{ $val }}"
+          {{ if index $temp $idx }} checked {{ end }}/>
+        {{ end }}
+      </div>
     </label>
 
     <br/>
 
-    <button hx-post="/reset" hx-target="#goSwitch">Reset</button>
+    <label for="size" class="configuration-is-flex">Enable Cheat: 
+      <input type="checkbox" name="cheat" id="config-cheat" value="1"
+      {{ if .Config.Cheat }} checked {{ end }}/>
+    </label>
+
+    <br/>
+
+    <button hx-post="/reset" hx-target="#goSwitch">Reset (with config)</button>
   </form>
 </fieldset>
-{{end}}
+{{ end }}

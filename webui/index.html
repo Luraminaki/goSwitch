@@ -1,4 +1,4 @@
-{{define "index"}}
+{{ define "index" }}
 <!DOCTYPE html>
 <html lang="en">
 
@@ -22,13 +22,21 @@
   <body id="goSwitch">
     <h1>GO SWITCH</h1>
 
-    <iframe name="hiddenFrame" class="hide"></iframe>
+    <div class="is-flex">
+      <div id="game-configuration" class="field-template">
+        {{ template "configuration" . }}
+      </div>
 
-    <div id="gridConfiguration">
-      {{ template "gridConfiguration" . }}
+      <div id="game-trivia" class="field-template">
+        {{ template "trivia" . }}
+      </div>
+
+      <div class="game-response" class="field-template">
+        {{ template "response" . }}
+      </div>
     </div>
 
-    <div id="grid">
+    <div class="game-canvas">
       {{ template "grid" . }}
     </div>
 
@@ -36,38 +44,4 @@
   </body>
 
 </html>
-
-<style>
-  .hide {position:absolute;
-         top:-1px;
-         left:-1px;
-         width:1px;
-         height:1px;}
-
-  body {text-align: center;
-        font-family: Helvetica, sans-serif;}
-
-  .game {display: flex;
-        justify-content: center;}
-
-  .square {background: #fff;
-          border: 1px solid #999;
-          float: left;
-          font-size: 34px;
-          font-weight: bold;
-          line-height: 44px;
-          height: 44px;
-          margin-right: -1px;
-          margin-top: -1px;
-          padding: 0;
-          text-align: center;
-          width: 44px;}
-
-  .board-row:after {clear: both;
-                    content: '';
-                    display: table;}
-
-  .disabled {pointer-events: none;
-            opacity: 0.5;}
-</style>
-{{end}}
+{{ end }}
