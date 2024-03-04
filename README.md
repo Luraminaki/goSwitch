@@ -26,6 +26,9 @@ _although some parts could have been a lot simpler, had I used some `JS`, I feel
 
 ## INSTALL AND RUN
 
+<details>
+<summary>GUIDE</summary>
+
 For `Go` installation, consult the following [link](https://go.dev/)
 
 Once done, open a new terminal in the directory `goSwitch`, type the following command to run the project, and you can then open your favorite web browser to [start-the-game](http://localhost:10000):
@@ -39,8 +42,12 @@ If compiling the code into an executable is what you are looking for, in the sam
 ```sh
 go build
 ```
+</details>
 
 ## PYTHON DRAFT
+
+<details>
+<summary>CODE</summary>
 
 ```py
 #!/usr/bin/env python3
@@ -213,3 +220,4 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 ```
+</details>
