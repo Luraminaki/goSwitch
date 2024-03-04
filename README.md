@@ -1,6 +1,6 @@
 # SWITCH
 
-Couple of years ago (back in early 2022), a friend asked me to give him a hand for a `Kotlin` game he was trying to code: A 3x3 grid of 2 states switches that, when toggled, change the state of their neighbours in a + shaped area around the aforementioned toggled switch. (I later learned that the game is called [Lights out](https://en.wikipedia.org/wiki/Lights_Out_(game)))
+Couple of years ago (back in early 2022), a friend asked me to give him a hand for a `Kotlin` game he was trying to code: A 3x3 grid of 2 states switches that, when toggled, change the state of their neighbours in a + shaped area around the aforementioned toggled switches. (I later learned that the game is called [Lights out](https://en.wikipedia.org/wiki/Lights_Out_(game)))
 
 Being a complete noob in `Kotlin`, I whipped up a [python draft](#python-draft) script in order to illustrate how I'd proceed...
 
