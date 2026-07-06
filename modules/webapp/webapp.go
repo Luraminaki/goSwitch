@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -152,15 +152,13 @@ func (wx *WebAppX) renderSession(c echo.Context, sess *session.Session, expired 
 }
 
 func (wx *WebAppX) InitHTMX(c echo.Context) error {
-	line := utils.Trace()
-
 	sess, ok, expired := wx.resolveSession(c)
 	if !ok {
-		log.Printf("%s Client waiting for a session slot", line)
+		slog.Info("Client waiting for a session slot", utils.FuncAttrKey, utils.Caller())
 		return c.Render(http.StatusOK, "index", wx.waitState())
 	}
 
-	log.Printf("%s Serving session %s", line, sess.ID)
+	slog.Info(fmt.Sprintf("Serving session %s", sess.ID), utils.FuncAttrKey, utils.Caller())
 
 	sess.Lock()
 	state := wx.gameState(sess, expired)
@@ -170,8 +168,6 @@ func (wx *WebAppX) InitHTMX(c echo.Context) error {
 }
 
 func (wx *WebAppX) Reset(c echo.Context) error {
-	line := utils.Trace()
-
 	sess, ok, expired := wx.resolveSession(c)
 	if !ok {
 		return c.Render(http.StatusOK, "index", wx.waitState())
@@ -180,19 +176,19 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 	jsonMap := utils.ProcessRequestForm(c)
 	resp := map[string]interface{}{"Status": "SUCCESS", "Error": ""}
 
-	log.Printf("%s Data received: %v\n", line, jsonMap)
+	slog.Debug(fmt.Sprintf("Data received: %v", jsonMap), utils.FuncAttrKey, utils.Caller())
 
-	dim, resp := utils.ParseDim(jsonMap, resp, line)
+	dim, resp := utils.ParseDim(jsonMap, resp)
 	if resp["Status"] == "ERROR" {
 		return wx.renderSession(c, sess, expired, resp)
 	}
 
-	neighborhood, resp := utils.ParseNeighborhood(jsonMap, resp, line)
+	neighborhood, resp := utils.ParseNeighborhood(jsonMap, resp)
 	if resp["Status"] == "ERROR" {
 		return wx.renderSession(c, sess, expired, resp)
 	}
 
-	cheat, resp := utils.ParseCheat(jsonMap, resp, line)
+	cheat, resp := utils.ParseCheat(jsonMap, resp)
 	if resp["Status"] == "ERROR" {
 		return wx.renderSession(c, sess, expired, resp)
 	}
@@ -204,7 +200,7 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 	sess.Cheat = cheat
 
 	sess.Game = grid.NewGrid(dim, neighborhood)
-	log.Printf("%s Possible solution: %v\n", line, sess.Game.GetPossibleSolution())
+	slog.Debug(fmt.Sprintf("Possible solution: %v", sess.Game.GetPossibleSolution()), utils.FuncAttrKey, utils.Caller())
 	sess.Game.PrettyPrintGrid()
 
 	state := utils.UpdateStateResponse(wx.gameState(sess, expired), resp)
@@ -214,8 +210,6 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 }
 
 func (wx *WebAppX) RevertMove(c echo.Context) error {
-	line := utils.Trace()
-
 	sess, ok, expired := wx.resolveSession(c)
 	if !ok {
 		return c.Render(http.StatusOK, "index", wx.waitState())
@@ -231,10 +225,11 @@ func (wx *WebAppX) RevertMove(c echo.Context) error {
 
 	moves := sess.Game.GetPreviousMoves()
 	if moves == nil {
+		const errMsg = "Not allowed: Nothing to revert to"
 		resp["Status"] = "ERROR"
-		resp["Error"] = "Not allowed: Nothing to revert to"
+		resp["Error"] = errMsg
 
-		log.Printf("%s %s", line, resp["Error"])
+		slog.Info(errMsg, utils.FuncAttrKey, utils.Caller())
 
 		return c.Render(http.StatusOK, "index", utils.UpdateStateResponse(wx.gameState(sess, expired), resp))
 	}
@@ -243,15 +238,13 @@ func (wx *WebAppX) RevertMove(c echo.Context) error {
 	moves = moves[:len(moves)-1]
 	sess.Game.SetPreviousMoves(moves)
 
-	log.Printf("%s Move History: %v\n", line, moves)
+	slog.Debug(fmt.Sprintf("Move History: %v", moves), utils.FuncAttrKey, utils.Caller())
 	sess.Game.PrettyPrintGrid()
 
 	return c.Render(http.StatusOK, "index", utils.UpdateStateResponse(wx.gameState(sess, expired), resp))
 }
 
 func (wx *WebAppX) Switch(c echo.Context) error {
-	line := utils.Trace()
-
 	sess, ok, expired := wx.resolveSession(c)
 	if !ok {
 		return c.Render(http.StatusOK, "index", wx.waitState())
@@ -260,9 +253,9 @@ func (wx *WebAppX) Switch(c echo.Context) error {
 	jsonMap := utils.ProcessRequestQuery(c)
 	resp := map[string]interface{}{"Status": "SUCCESS", "Error": ""}
 
-	log.Printf("%s Data received: %v\n", line, jsonMap)
+	slog.Debug(fmt.Sprintf("Data received: %v", jsonMap), utils.FuncAttrKey, utils.Caller())
 
-	row, col, resp := utils.ParseRowCol(jsonMap, resp, line)
+	row, col, resp := utils.ParseRowCol(jsonMap, resp)
 	if resp["Status"] == "ERROR" {
 		return wx.renderSession(c, sess, expired, resp)
 	}
@@ -277,7 +270,7 @@ func (wx *WebAppX) Switch(c echo.Context) error {
 	moves = append(moves, pos)
 	sess.Game.SetPreviousMoves(moves)
 
-	log.Printf("%s Move History: %v\n", line, moves)
+	slog.Debug(fmt.Sprintf("Move History: %v", moves), utils.FuncAttrKey, utils.Caller())
 	sess.Game.PrettyPrintGrid()
 
 	return c.Render(http.StatusOK, "index", utils.UpdateStateResponse(wx.gameState(sess, expired), resp))
@@ -326,7 +319,7 @@ func (wx *WebAppX) Wait(c echo.Context) error {
 			}
 
 			if err := writeSSEEvent(resp, "ready", buf.String()); err != nil {
-				log.Printf("Wait -- failed writing SSE event (client likely disconnected): %v", err)
+				slog.Warn(fmt.Sprintf("Wait -- failed writing SSE event (client likely disconnected): %v", err), utils.FuncAttrKey, utils.Caller())
 				return nil
 			}
 			resp.Flush()

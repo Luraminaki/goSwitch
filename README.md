@@ -14,6 +14,7 @@ _although some parts could have been a lot simpler, had I used some `JS`, I feel
 - 0.2.0-alpha: Bug fixes, dependency upgrades, per-client sessions (capacity limit, TTL, idle timeout) with an SSE-based waiting room
 - 0.3.0-alpha: Rotating log files, unit/integration test suite, retro synthwave/arcade CSS reskin
 - 0.4.0-alpha: Graceful shutdown, per-IP rate limiting, CI (build/vet/format/test/lint) + Dependabot, session-expiry UX notice, win/loading visual feedback
+- 0.4.1-alpha: Structured `log/slog`-based logging (Python `logging`-style formatted lines, configurable level), flashing retro "YOU WIN" banner
 
 ## TABLE OF CONTENT
 
@@ -68,6 +69,7 @@ Everything is driven by [config.json](config.json), read once at startup:
 | `LogFilePath`                       | Path to the rotating log file (see [LOGGING](#logging))                                    |
 | `LogMaxSizeMB`                      | Max size (MB) a log file reaches before it's rotated                                       |
 | `LogMaxBackups`                     | Max number of rotated log files kept around                                                |
+| `LogLevel`                          | Minimum level logged: `DEBUG`, `INFO`, `WARN`, or `ERROR`                                   |
 | `RateLimitRequestsPerSecond`        | Sustained requests/second allowed per client IP                                            |
 | `RateLimitBurst`                    | Max requests a single client IP can burst above the sustained rate                          |
 
@@ -87,7 +89,13 @@ If a client comes back with a cookie for a session that's since been purged (evi
 
 ## LOGGING
 
-All server output goes through the standard `log` package, which is wired (in `NewWebApp`) to write to both stdout and a rotating file at `LogFilePath`, via [lumberjack](https://github.com/natefinch/lumberjack). Once a log file reaches `LogMaxSizeMB`, it's rotated; once more than `LogMaxBackups` rotated files have piled up, the oldest is deleted. The log directory is created automatically if it doesn't exist.
+All server output goes through the standard `log/slog` package with a custom handler (in `utils.SetupLogging`), formatted as:
+
+```
+[2006-01-02 15:04:05,000] [pid] [name] [LEVEL]: funcName -- message
+```
+
+i.e. the Python `logging` module's classic `"[%(asctime)s] [%(process)s] [%(name)s] [%(levelname)s]: %(funcName)s -- %(message)s"`. Lines are written to both stdout and a rotating file at `LogFilePath`, via [lumberjack](https://github.com/natefinch/lumberjack). Once a log file reaches `LogMaxSizeMB`, it's rotated; once more than `LogMaxBackups` rotated files have piled up, the oldest is deleted. The log directory is created automatically if it doesn't exist. Only lines at or above `LogLevel` are emitted.
 
 ## TESTING
 
