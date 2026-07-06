@@ -11,6 +11,8 @@ _although some parts could have been a lot simpler, had I used some `JS`, I feel
 ## VERSIONS
 
 - 0.1.0-alpha: First release
+- 0.2.0-alpha: Bug fixes, dependency upgrades, per-client sessions (capacity limit, TTL, idle timeout) with an SSE-based waiting room
+- 0.3.0-alpha: Rotating log files, unit/integration test suite, retro synthwave/arcade CSS reskin
 
 ## TABLE OF CONTENT
 
@@ -20,29 +22,74 @@ _although some parts could have been a lot simpler, had I used some `JS`, I feel
   - [VERSIONS](#versions)
   - [TABLE OF CONTENT](#table-of-content)
   - [INSTALL AND RUN](#install-and-run)
+  - [CONFIGURATION](#configuration)
+  - [SESSIONS](#sessions)
+  - [LOGGING](#logging)
+  - [TESTING](#testing)
   - [PYTHON DRAFT](#python-draft)
 
 <!-- /TOC -->
 
 ## INSTALL AND RUN
 
-<details>
-<summary>GUIDE</summary>
+For detailed, platform-specific setup (Windows, Debian/Ubuntu, Arch), see [INSTALL.md](INSTALL.md).
 
-For `Go` installation, consult the following [link](https://go.dev/)
-
-Once done, open a new terminal in the directory `goSwitch`, type the following command to run the project, and you can then open your favorite web browser to [start-the-game](http://localhost:10000):
+Quick start, once `Go` is installed:
 
 ```sh
 go run .
 ```
 
-If compiling the code into an executable is what you are looking for, in the same fashion as mentionned above, type the following command:
+Then open your favorite web browser to [start the game](http://localhost:10000).
+
+To compile an executable instead:
 
 ```sh
 go build
 ```
-</details>
+
+## CONFIGURATION
+
+Everything is driven by [config.json](config.json), read once at startup:
+
+| Key                               | Meaning                                                                                   |
+|------------------------------------|--------------------------------------------------------------------------------------------|
+| `Port`                              | TCP port the server listens on                                                             |
+| `Cheat`                             | Default: reveal the winning combination in a new session                                   |
+| `Dim`                               | Default grid size (`N x N`), also the bound for the in-game grid-size field (`[2, 5]`)      |
+| `ToggleSequence`                    | Default pattern selection, parallel to `AvailableToggleSequence`                            |
+| `AvailableToggleSequence`           | The full set of selectable neighborhood patterns (`0`: self, `4`: plus-shaped, `8`: diagonals) |
+| `MaxSessions`                       | Max number of concurrent per-client sessions                                               |
+| `SessionTTLSeconds`                 | Absolute max lifetime of a session, from creation                                          |
+| `SessionIdleTimeoutSeconds`         | Max inactivity a session can accrue once `MaxSessions` is reached (see [SESSIONS](#sessions)) |
+| `SessionWaitCheckIntervalSeconds`   | How often a waiting client is silently re-checked for a freed-up slot                       |
+| `LogFilePath`                       | Path to the rotating log file (see [LOGGING](#logging))                                    |
+| `LogMaxSizeMB`                      | Max size (MB) a log file reaches before it's rotated                                       |
+| `LogMaxBackups`                     | Max number of rotated log files kept around                                                |
+
+## SESSIONS
+
+Each client gets its own isolated grid, tracked via a cookie, capped at `MaxSessions` concurrent players.
+
+Purging is lazy: nothing is evicted while there's a free slot. Only when a new client shows up and every slot is taken does the server look for something to reclaim, in order:
+
+1. Any session past its `SessionTTLSeconds` (absolute lifetime).
+2. Any session past its `SessionIdleTimeoutSeconds` (inactivity) -- this idle check only ever runs under this capacity pressure, never proactively.
+3. If nothing is reclaimable, the new client waits.
+
+A waiting client isn't polling: it opens a single [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) connection (via the vendored [htmx-ext-sse](https://github.com/bigskysoftware/htmx-extensions/tree/main/src/sse) extension, no hand-written JS) and is pushed straight into a live game the moment a slot frees up.
+
+## LOGGING
+
+All server output goes through the standard `log` package, which is wired (in `NewWebApp`) to write to both stdout and a rotating file at `LogFilePath`, via [lumberjack](https://github.com/natefinch/lumberjack). Once a log file reaches `LogMaxSizeMB`, it's rotated; once more than `LogMaxBackups` rotated files have piled up, the oldest is deleted. The log directory is created automatically if it doesn't exist.
+
+## TESTING
+
+```sh
+go test ./...
+```
+
+Covers unit tests per package (`grid`, `utils`, `session`, `template`) plus integration tests at the repo root (`main_test.go`) that spin up the real server and drive it over HTTP: full gameplay flow, per-client session isolation, the capacity/idle-timeout/SSE-waiting-room path, and regression tests for two previously-fixed bugs (a crash on malformed requests, and a reflected-XSS in error messages).
 
 ## PYTHON DRAFT
 

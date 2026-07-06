@@ -2,14 +2,15 @@ package grid
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"sort"
+	"strings"
 	"time"
 )
 
 type Grid struct {
-	Rows         int
-	Cols         int
+	Dim          int
 	neighborhood []int
 	grid         []int
 	solution     []int
@@ -17,23 +18,39 @@ type Grid struct {
 	rand         *rand.Rand
 }
 
+// maxInitAttempts bounds the "regenerate until not already won" retry loop in
+// NewGrid. Some (dim, neighborhood) combinations are structurally degenerate --
+// e.g. a 2x2 grid with every pattern enabled has every switch touch all 4 cells
+// uniformly, so the board can never be anything but solved -- without a cap the
+// loop would spin forever instead of just being unlikely to need many retries.
+const maxInitAttempts = 1000
+
 func NewGrid(dim int, neighborhood []int) *Grid {
 	g := &Grid{
-		Rows:         dim,
-		Cols:         dim,
+		Dim:          dim,
 		neighborhood: neighborhood,
 		grid:         make([]int, dim*dim),
 		rand:         rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
+
 	g.initGame()
-	for g.CheckWin() {
+	for attempts := 0; g.CheckWin() && attempts < maxInitAttempts; attempts++ {
 		g.initGame()
 	}
+
+	if g.CheckWin() {
+		// Structurally degenerate configuration: force a single flip so the
+		// board isn't handed to the player already solved.
+		g.grid[0] = 1 - g.grid[0]
+		g.solution = append(g.solution, 0)
+		sort.Ints(g.solution)
+	}
+
 	return g
 }
 
 func (g *Grid) initGame() {
-	gridSize := g.Rows * g.Cols
+	gridSize := g.Dim * g.Dim
 	hits := make([]int, gridSize)
 
 	start := g.rand.Intn(2)
@@ -47,7 +64,7 @@ func (g *Grid) initGame() {
 		hits[i], hits[j] = hits[j], hits[i]
 	})
 
-	randIndex := rand.Intn(gridSize)
+	randIndex := g.rand.Intn(gridSize)
 	g.solution = hits[:randIndex]
 	sort.Ints(g.solution)
 
@@ -60,11 +77,11 @@ func (g *Grid) coordFlatToCart(dim int) (int, int) {
 	if dim >= len(g.grid) {
 		return -1, -1
 	}
-	return dim % g.Cols, dim / g.Rows
+	return dim % g.Dim, dim / g.Dim
 }
 
 func (g *Grid) checkOOB(x, y int) bool {
-	return (0 <= x && x < g.Cols) && (0 <= y && y < g.Rows)
+	return (0 <= x && x < g.Dim) && (0 <= y && y < g.Dim)
 }
 
 func (g *Grid) switchV4(x, y int) [][2]int {
@@ -101,11 +118,11 @@ func (g *Grid) switchV8(x, y int) [][2]int {
 	return coordsToSwitch
 }
 
-func (g *Grid) Switch(pos int) []int {
+func (g *Grid) Switch(pos int) {
 	x, y := g.coordFlatToCart(pos)
 
 	if !g.checkOOB(x, y) {
-		return g.grid
+		return
 	}
 
 	var coordsToSwitch [][2]int
@@ -120,15 +137,18 @@ func (g *Grid) Switch(pos int) []int {
 		}
 	}
 	for _, coord := range coordsToSwitch {
-		g.grid[coord[0]+g.Cols*coord[1]] = 1 - g.grid[coord[0]+g.Cols*coord[1]]
+		g.grid[coord[0]+g.Dim*coord[1]] = 1 - g.grid[coord[0]+g.Dim*coord[1]]
 	}
-	return g.grid
 }
 
+// GetGrid returns a defensive copy of the board, safe to read after the caller
+// releases whatever lock was guarding this Grid.
 func (g *Grid) GetGrid() [][]int {
-	customGrid := make([][]int, len(g.grid)/g.Rows)
-	for idx := 0; idx < len(g.grid)/g.Rows; idx++ {
-		customGrid[idx] = g.grid[g.Cols*idx : (idx+1)*g.Cols]
+	customGrid := make([][]int, g.Dim)
+	for idx := 0; idx < g.Dim; idx++ {
+		row := make([]int, g.Dim)
+		copy(row, g.grid[g.Dim*idx:(idx+1)*g.Dim])
+		customGrid[idx] = row
 	}
 	return customGrid
 }
@@ -150,16 +170,19 @@ func (g *Grid) CheckWin() bool {
 	for _, val := range g.grid {
 		sum += val
 	}
-	return sum == 0 || sum == g.Rows*g.Cols
+	return sum == 0 || sum == g.Dim*g.Dim
 }
 
 func (g *Grid) PrettyPrintGrid() {
-	fmt.Println("Game Layout:")
-	for r := 0; r < g.Rows; r++ {
-		for c := 0; c < g.Cols; c++ {
-			fmt.Printf("%d ", g.grid[c+r*g.Cols])
+	var sb strings.Builder
+
+	sb.WriteString("Game Layout:\n")
+	for r := 0; r < g.Dim; r++ {
+		for c := 0; c < g.Dim; c++ {
+			fmt.Fprintf(&sb, "%d ", g.grid[c+r*g.Dim])
 		}
-		fmt.Println()
+		sb.WriteString("\n")
 	}
-	fmt.Println()
+
+	log.Print(sb.String())
 }

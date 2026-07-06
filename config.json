@@ -3,5 +3,12 @@
     "Cheat": false,
     "Dim": 3,
     "ToggleSequence": [true, true, false],
-    "AvailableToggleSequence": [0, 4, 8]
+    "AvailableToggleSequence": [0, 4, 8],
+    "MaxSessions": 10,
+    "SessionTTLSeconds": 1800,
+    "SessionIdleTimeoutSeconds": 300,
+    "SessionWaitCheckIntervalSeconds": 2,
+    "LogFilePath": "./logs/goswitch.log",
+    "LogMaxSizeMB": 5,
+    "LogMaxBackups": 5
 }
