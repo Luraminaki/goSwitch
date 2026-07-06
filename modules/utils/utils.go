@@ -3,9 +3,9 @@ package utils
 import (
 	"fmt"
 	"log"
+	"log/slog"
 	"net/url"
 	"os"
-	"runtime"
 	"strconv"
 
 	"encoding/json"
@@ -37,22 +37,14 @@ type Config struct {
 	LogMaxSizeMB int `json:"LogMaxSizeMB"`
 	// LogMaxBackups is the max number of rotated log files kept around.
 	LogMaxBackups int `json:"LogMaxBackups"`
+	// LogLevel is the minimum level logged: DEBUG, INFO, WARN, or ERROR.
+	LogLevel string `json:"LogLevel"`
 
 	// RateLimitRequestsPerSecond is the sustained per-client-IP request rate allowed.
 	RateLimitRequestsPerSecond float64 `json:"RateLimitRequestsPerSecond"`
 	// RateLimitBurst is the max number of requests a single client IP can make
 	// in a short burst above the sustained rate.
 	RateLimitBurst int `json:"RateLimitBurst"`
-}
-
-// Trace returns the calling function's name, formatted as a log-line prefix.
-func Trace() string {
-	pc := make([]uintptr, 15)
-	n := runtime.Callers(2, pc)
-	frames := runtime.CallersFrames(pc[:n])
-	frame, _ := frames.Next()
-
-	return fmt.Sprintf("%s --", frame.Function)
 }
 
 func ParseJsonConfig(path string) Config {
@@ -115,6 +107,10 @@ func validateConfig(config *Config) error {
 
 	if config.LogMaxBackups < 1 {
 		return fmt.Errorf("'LogMaxBackups' must be >= 1, got %d", config.LogMaxBackups)
+	}
+
+	if _, err := ParseLogLevel(config.LogLevel); err != nil {
+		return err
 	}
 
 	if config.RateLimitRequestsPerSecond <= 0 {
@@ -204,45 +200,41 @@ func firstFormValue(jsonMap map[string]interface{}, key string) (string, bool) {
 	return values[0], true
 }
 
-func ParseDim(jsonMap map[string]interface{}, resp map[string]interface{}, line string) (int, map[string]interface{}) {
+// fail marks resp as an error with msg, logs it (at the call site's own function name,
+// since these are client-input validation issues, not server faults), and returns msg.
+func fail(resp map[string]interface{}, msg string) string {
+	resp["Status"] = "ERROR"
+	resp["Error"] = msg
+	return msg
+}
+
+func ParseDim(jsonMap map[string]interface{}, resp map[string]interface{}) (int, map[string]interface{}) {
 	raw, ok := firstFormValue(jsonMap, "dim")
 	if !ok {
-		resp["Status"] = "ERROR"
-		resp["Error"] = "Params error: 'dim' key missing"
-		log.Printf("%s %s", line, resp["Error"])
-
+		slog.Warn(fail(resp, "Params error: 'dim' key missing"), FuncAttrKey, Caller())
 		return -1, resp
 	}
 
 	dim, err := strconv.Atoi(raw)
 
 	if err != nil {
-		resp["Status"] = "ERROR"
-		resp["Error"] = "Params error: " + err.Error()
-		log.Printf("%s %s", line, resp["Error"])
-
+		slog.Warn(fail(resp, "Params error: "+err.Error()), FuncAttrKey, Caller())
 		return -1, resp
 	}
 
 	if dim < 2 || dim > 5 {
-		resp["Status"] = "ERROR"
-		resp["Error"] = "Params error: dim ∈ [2, 5]"
-		log.Printf("%s %s", line, resp["Error"])
-
+		slog.Warn(fail(resp, "Params error: dim ∈ [2, 5]"), FuncAttrKey, Caller())
 		return -1, resp
 	}
 
 	return dim, resp
 }
 
-func ParseNeighborhood(jsonMap map[string]interface{}, resp map[string]interface{}, line string) ([]int, map[string]interface{}) {
+func ParseNeighborhood(jsonMap map[string]interface{}, resp map[string]interface{}) ([]int, map[string]interface{}) {
 	raw, ok := jsonMap["neighborhood"]
 	values, valuesOk := raw.([]string)
 	if !ok || raw == nil || !valuesOk {
-		resp["Status"] = "ERROR"
-		resp["Error"] = "Params error: 'neighborhood' key missing"
-		log.Printf("%s %s", line, resp["Error"])
-
+		slog.Warn(fail(resp, "Params error: 'neighborhood' key missing"), FuncAttrKey, Caller())
 		return make([]int, 0), resp
 	}
 
@@ -250,35 +242,26 @@ func ParseNeighborhood(jsonMap map[string]interface{}, resp map[string]interface
 	for _, i := range values {
 		j, err := strconv.Atoi(i)
 		if err != nil {
-			resp["Status"] = "ERROR"
-			resp["Error"] = "Params error: " + err.Error()
-			log.Printf("%s %s", line, resp["Error"])
-
+			slog.Warn(fail(resp, "Params error: "+err.Error()), FuncAttrKey, Caller())
 			return make([]int, 0), resp
 		}
 		neighborhood = append(neighborhood, j)
 	}
 
 	if len(neighborhood) == 0 {
-		resp["Status"] = "ERROR"
-		resp["Error"] = "Params error: 'neighborhood' value is empty"
-		log.Printf("%s %s", line, resp["Error"])
-
+		slog.Warn(fail(resp, "Params error: 'neighborhood' value is empty"), FuncAttrKey, Caller())
 		return make([]int, 0), resp
 	}
 
 	return neighborhood, resp
 }
 
-func ParseCheat(jsonMap map[string]interface{}, resp map[string]interface{}, line string) (bool, map[string]interface{}) {
+func ParseCheat(jsonMap map[string]interface{}, resp map[string]interface{}) (bool, map[string]interface{}) {
 	cheat := false
 	if raw, ok := firstFormValue(jsonMap, "cheat"); ok {
 		cheatInt, err := strconv.Atoi(raw)
 		if err != nil {
-			resp["Status"] = "ERROR"
-			resp["Error"] = "Params error: " + err.Error()
-			log.Printf("%s %s", line, resp["Error"])
-
+			slog.Warn(fail(resp, "Params error: "+err.Error()), FuncAttrKey, Caller())
 			return cheat, resp
 		}
 		cheat = cheatInt != 0
@@ -287,42 +270,30 @@ func ParseCheat(jsonMap map[string]interface{}, resp map[string]interface{}, lin
 	return cheat, resp
 }
 
-func ParseRowCol(jsonMap map[string]interface{}, resp map[string]interface{}, line string) (int, int, map[string]interface{}) {
+func ParseRowCol(jsonMap map[string]interface{}, resp map[string]interface{}) (int, int, map[string]interface{}) {
 	rowRaw, ok := firstFormValue(jsonMap, "row")
 	if !ok {
-		resp["Status"] = "ERROR"
-		resp["Error"] = "Params error: 'row' key missing"
-		log.Printf("%s %s", line, resp["Error"])
-
+		slog.Warn(fail(resp, "Params error: 'row' key missing"), FuncAttrKey, Caller())
 		return -1, -1, resp
 	}
 
 	row, err := strconv.Atoi(rowRaw)
 
 	if err != nil {
-		resp["Status"] = "ERROR"
-		resp["Error"] = "Params error: " + err.Error()
-		log.Printf("%s %s", line, resp["Error"])
-
+		slog.Warn(fail(resp, "Params error: "+err.Error()), FuncAttrKey, Caller())
 		return -1, -1, resp
 	}
 
 	colRaw, ok := firstFormValue(jsonMap, "col")
 	if !ok {
-		resp["Status"] = "ERROR"
-		resp["Error"] = "Params error: 'col' key missing"
-		log.Printf("%s %s", line, resp["Error"])
-
+		slog.Warn(fail(resp, "Params error: 'col' key missing"), FuncAttrKey, Caller())
 		return -1, -1, resp
 	}
 
 	col, err := strconv.Atoi(colRaw)
 
 	if err != nil {
-		resp["Status"] = "ERROR"
-		resp["Error"] = "Params error: " + err.Error()
-		log.Printf("%s %s", line, resp["Error"])
-
+		slog.Warn(fail(resp, "Params error: "+err.Error()), FuncAttrKey, Caller())
 		return -1, -1, resp
 	}
 

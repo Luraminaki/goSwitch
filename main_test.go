@@ -43,6 +43,7 @@ func newTestConfigFile(t *testing.T, override func(*utils.Config)) string {
 		LogFilePath:                     filepath.Join(dir, "test.log"),
 		LogMaxSizeMB:                    5,
 		LogMaxBackups:                   5,
+		LogLevel:                        "DEBUG",
 		// Generous by default so ordinary tests firing several quick requests never
 		// get throttled; TestRateLimitBlocksExcessRequests overrides this deliberately.
 		RateLimitRequestsPerSecond: 1000,

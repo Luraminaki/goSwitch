@@ -33,7 +33,7 @@ func TestParseDim(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, resp := ParseDim(tt.jsonMap, freshResp(), "test")
+			got, resp := ParseDim(tt.jsonMap, freshResp())
 			if got != tt.want {
 				t.Errorf("ParseDim() = %d, want %d", got, tt.want)
 			}
@@ -62,7 +62,7 @@ func TestParseNeighborhood(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, resp := ParseNeighborhood(tt.jsonMap, freshResp(), "test")
+			got, resp := ParseNeighborhood(tt.jsonMap, freshResp())
 			if !intSliceEqual(got, tt.want) {
 				t.Errorf("ParseNeighborhood() = %v, want %v", got, tt.want)
 			}
@@ -89,7 +89,7 @@ func TestParseCheat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, resp := ParseCheat(tt.jsonMap, freshResp(), "test")
+			got, resp := ParseCheat(tt.jsonMap, freshResp())
 			if got != tt.want {
 				t.Errorf("ParseCheat() = %v, want %v", got, tt.want)
 			}
@@ -119,7 +119,7 @@ func TestParseRowCol(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			row, col, resp := ParseRowCol(tt.jsonMap, freshResp(), "test")
+			row, col, resp := ParseRowCol(tt.jsonMap, freshResp())
 			if row != tt.wantRow || col != tt.wantCol {
 				t.Errorf("ParseRowCol() = (%d, %d), want (%d, %d)", row, col, tt.wantRow, tt.wantCol)
 			}
@@ -197,6 +197,7 @@ func TestValidateConfig(t *testing.T) {
 			LogFilePath:                     "./logs/goswitch.log",
 			LogMaxSizeMB:                    5,
 			LogMaxBackups:                   5,
+			LogLevel:                        "INFO",
 			RateLimitRequestsPerSecond:      5,
 			RateLimitBurst:                  10,
 		}
@@ -221,6 +222,7 @@ func TestValidateConfig(t *testing.T) {
 		{"empty log file path", func(c *Config) { c.LogFilePath = "" }},
 		{"zero log max size", func(c *Config) { c.LogMaxSizeMB = 0 }},
 		{"zero log max backups", func(c *Config) { c.LogMaxBackups = 0 }},
+		{"invalid log level", func(c *Config) { c.LogLevel = "VERBOSE" }},
 		{"zero rate limit", func(c *Config) { c.RateLimitRequestsPerSecond = 0 }},
 		{"zero rate limit burst", func(c *Config) { c.RateLimitBurst = 0 }},
 	}
@@ -253,6 +255,7 @@ func TestParseJsonConfigValidFile(t *testing.T) {
 		"LogFilePath": "./logs/goswitch.log",
 		"LogMaxSizeMB": 5,
 		"LogMaxBackups": 5,
+		"LogLevel": "INFO",
 		"RateLimitRequestsPerSecond": 5,
 		"RateLimitBurst": 10
 	}`

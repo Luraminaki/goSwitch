@@ -2,11 +2,13 @@ package grid
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"math/rand"
 	"sort"
 	"strings"
 	"time"
+
+	utils "goSwitch/modules/utils"
 )
 
 type Grid struct {
@@ -184,5 +186,5 @@ func (g *Grid) PrettyPrintGrid() {
 		sb.WriteString("\n")
 	}
 
-	log.Print(sb.String())
+	slog.Debug(sb.String(), utils.FuncAttrKey, utils.Caller())
 }

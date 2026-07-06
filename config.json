@@ -11,6 +11,7 @@
     "LogFilePath": "./logs/goswitch.log",
     "LogMaxSizeMB": 5,
     "LogMaxBackups": 5,
+    "LogLevel": "DEBUG",
     "RateLimitRequestsPerSecond": 5,
     "RateLimitBurst": 10
 }

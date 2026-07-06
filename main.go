@@ -3,13 +3,15 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	utils "goSwitch/modules/utils"
 	webapp "goSwitch/modules/webapp"
 )
 
@@ -36,7 +38,7 @@ func main() {
 	defer stop()
 	<-ctx.Done()
 
-	log.Println("Shutting down...")
+	slog.Info("Shutting down...", utils.FuncAttrKey, utils.Caller())
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
@@ -46,6 +48,6 @@ func main() {
 	}
 
 	if err := wx.LogCloser.Close(); err != nil {
-		log.Printf("failed to close log file: %v", err)
+		slog.Error(fmt.Sprintf("failed to close log file: %v", err), utils.FuncAttrKey, utils.Caller())
 	}
 }
