@@ -10,5 +10,7 @@
     "SessionWaitCheckIntervalSeconds": 2,
     "LogFilePath": "./logs/goswitch.log",
     "LogMaxSizeMB": 5,
-    "LogMaxBackups": 5
+    "LogMaxBackups": 5,
+    "RateLimitRequestsPerSecond": 5,
+    "RateLimitBurst": 10
 }

@@ -37,6 +37,12 @@ type Config struct {
 	LogMaxSizeMB int `json:"LogMaxSizeMB"`
 	// LogMaxBackups is the max number of rotated log files kept around.
 	LogMaxBackups int `json:"LogMaxBackups"`
+
+	// RateLimitRequestsPerSecond is the sustained per-client-IP request rate allowed.
+	RateLimitRequestsPerSecond float64 `json:"RateLimitRequestsPerSecond"`
+	// RateLimitBurst is the max number of requests a single client IP can make
+	// in a short burst above the sustained rate.
+	RateLimitBurst int `json:"RateLimitBurst"`
 }
 
 // Trace returns the calling function's name, formatted as a log-line prefix.
@@ -50,13 +56,13 @@ func Trace() string {
 }
 
 func ParseJsonConfig(path string) Config {
-	jsonFile, err := os.Open(path)
+	jsonFile, err := os.Open(path) //nolint:gosec // path is a trusted, operator-supplied startup argument, not user input
 
 	if err != nil {
 		log.Fatal("Error when opening JSON file: ", err.Error())
 	}
 
-	defer jsonFile.Close()
+	defer func() { _ = jsonFile.Close() }()
 
 	var config Config
 	err = json.NewDecoder(jsonFile).Decode(&config)
@@ -109,6 +115,14 @@ func validateConfig(config *Config) error {
 
 	if config.LogMaxBackups < 1 {
 		return fmt.Errorf("'LogMaxBackups' must be >= 1, got %d", config.LogMaxBackups)
+	}
+
+	if config.RateLimitRequestsPerSecond <= 0 {
+		return fmt.Errorf("'RateLimitRequestsPerSecond' must be > 0, got %v", config.RateLimitRequestsPerSecond)
+	}
+
+	if config.RateLimitBurst < 1 {
+		return fmt.Errorf("'RateLimitBurst' must be >= 1, got %d", config.RateLimitBurst)
 	}
 
 	return nil

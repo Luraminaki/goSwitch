@@ -30,7 +30,7 @@ func NewGrid(dim int, neighborhood []int) *Grid {
 		Dim:          dim,
 		neighborhood: neighborhood,
 		grid:         make([]int, dim*dim),
-		rand:         rand.New(rand.NewSource(time.Now().UnixNano())),
+		rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec // puzzle shuffling, not security-sensitive
 	}
 
 	g.initGame()

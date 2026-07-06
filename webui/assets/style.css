@@ -9,6 +9,7 @@
   --neon-pink: #ff2ec4;
   --neon-cyan: #00fff2;
   --neon-violet: #b967ff;
+  --neon-amber: #ffb627;
 
   --text-main: #f1e9ff;
   --text-dim: #9d86c9;
@@ -76,6 +77,20 @@ h1 {
   background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink));
   border-radius: 999px;
   box-shadow: 0 0 10px rgba(0, 255, 242, 0.6);
+}
+
+.notice {
+  display: inline-block;
+  margin: 0 0 20px;
+  padding: 6px 16px;
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--neon-amber);
+  background: rgba(255, 182, 39, 0.1);
+  border: 1px solid var(--neon-amber);
+  border-radius: 4px;
+  box-shadow: 0 0 10px rgba(255, 182, 39, 0.5);
 }
 
 .is-flex {
@@ -206,6 +221,19 @@ button:active {
   transform: translateY(0);
 }
 
+:focus-visible {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: 2px;
+}
+
+/* htmx automatically applies this class to the element that issued a request,
+   for its duration -- no extra markup needed. */
+button.htmx-request {
+  opacity: 0.6;
+  cursor: wait;
+  animation: none;
+}
+
 .grid-game {
   display: flex;
   justify-content: center;
@@ -247,8 +275,25 @@ button:active {
   50%      { filter: brightness(1.25); }
 }
 
+.game-canvas[data-win="true"] {
+  display: inline-block;
+  padding: 8px;
+  border-radius: 8px;
+  border: 2px solid var(--neon-cyan);
+  box-shadow:
+    0 0 16px var(--neon-cyan),
+    0 0 32px var(--neon-pink);
+  animation: winPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes winPulse {
+  0%, 100% { box-shadow: 0 0 16px var(--neon-cyan), 0 0 32px var(--neon-pink); }
+  50%      { box-shadow: 0 0 28px var(--neon-cyan), 0 0 52px var(--neon-pink); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .grid-square[data-state="1"] {
+  .grid-square[data-state="1"],
+  .game-canvas[data-win="true"] {
     animation: none;
   }
 }

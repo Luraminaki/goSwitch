@@ -62,17 +62,18 @@ func NewManager(config *utils.Config) *Manager {
 	}
 }
 
-// Claim returns the existing session for id, bumping its LastUpdatedAt. If no session
-// exists for id, it tries to create one, opportunistically evicting TTL-expired then
-// idle-timed-out sessions if the manager is at capacity. Returns ok=false only when
-// still at capacity after eviction attempts -- the caller must have the client wait.
-func (m *Manager) Claim(id string) (*Session, bool) {
+// Claim returns the existing session for id, bumping its LastUpdatedAt, and reports
+// existed=true. If no session exists for id, it tries to create one (existed=false),
+// opportunistically evicting TTL-expired then idle-timed-out sessions if the manager
+// is at capacity. Returns ok=false only when still at capacity after eviction
+// attempts -- the caller must have the client wait.
+func (m *Manager) Claim(id string) (sess *Session, ok bool, existed bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if s, ok := m.sessions[id]; ok {
+	if s, found := m.sessions[id]; found {
 		s.LastUpdatedAt = time.Now()
-		return s, true
+		return s, true, true
 	}
 
 	now := time.Now()
@@ -84,10 +85,10 @@ func (m *Manager) Claim(id string) (*Session, bool) {
 		m.evictIdleLocked(now)
 	}
 	if len(m.sessions) >= m.maxSessions {
-		return nil, false
+		return nil, false, false
 	}
 
-	return m.newSessionLocked(id, now), true
+	return m.newSessionLocked(id, now), true, false
 }
 
 // Count returns the number of currently live sessions.
