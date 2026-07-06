@@ -103,11 +103,11 @@ func TestParseCheat(t *testing.T) {
 
 func TestParseRowCol(t *testing.T) {
 	tests := []struct {
-		name        string
-		jsonMap     map[string]interface{}
-		wantErr     bool
-		wantRow     int
-		wantCol     int
+		name    string
+		jsonMap map[string]interface{}
+		wantErr bool
+		wantRow int
+		wantCol int
 	}{
 		{"valid", map[string]interface{}{"row": []string{"1"}, "col": []string{"2"}}, false, 1, 2},
 		{"missing row", map[string]interface{}{"col": []string{"2"}}, true, -1, -1},
@@ -197,6 +197,8 @@ func TestValidateConfig(t *testing.T) {
 			LogFilePath:                     "./logs/goswitch.log",
 			LogMaxSizeMB:                    5,
 			LogMaxBackups:                   5,
+			RateLimitRequestsPerSecond:      5,
+			RateLimitBurst:                  10,
 		}
 	}
 
@@ -219,6 +221,8 @@ func TestValidateConfig(t *testing.T) {
 		{"empty log file path", func(c *Config) { c.LogFilePath = "" }},
 		{"zero log max size", func(c *Config) { c.LogMaxSizeMB = 0 }},
 		{"zero log max backups", func(c *Config) { c.LogMaxBackups = 0 }},
+		{"zero rate limit", func(c *Config) { c.RateLimitRequestsPerSecond = 0 }},
+		{"zero rate limit burst", func(c *Config) { c.RateLimitBurst = 0 }},
 	}
 
 	for _, tt := range tests {
@@ -248,10 +252,12 @@ func TestParseJsonConfigValidFile(t *testing.T) {
 		"SessionWaitCheckIntervalSeconds": 2,
 		"LogFilePath": "./logs/goswitch.log",
 		"LogMaxSizeMB": 5,
-		"LogMaxBackups": 5
+		"LogMaxBackups": 5,
+		"RateLimitRequestsPerSecond": 5,
+		"RateLimitBurst": 10
 	}`
 
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("failed to write temp config: %v", err)
 	}
 

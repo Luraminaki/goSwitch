@@ -3,6 +3,10 @@
 
 <p class="session-badge">Sessions: {{ .SessionCount }}/{{ .MaxSessions }}</p>
 
+{{ if .Expired }}
+<p class="notice">SYSTEM MESSAGE: Your previous session expired -- starting fresh.</p>
+{{ end }}
+
 <div class="is-flex">
   <div id="game-configuration" class="field-template">
     {{ template "configuration" . }}
@@ -17,7 +21,7 @@
   </div>
 </div>
 
-<div class="game-canvas">
+<div class="game-canvas" data-win="{{ .Win }}">
   {{ template "grid" . }}
 </div>
 {{ end }}

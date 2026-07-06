@@ -13,6 +13,7 @@ _although some parts could have been a lot simpler, had I used some `JS`, I feel
 - 0.1.0-alpha: First release
 - 0.2.0-alpha: Bug fixes, dependency upgrades, per-client sessions (capacity limit, TTL, idle timeout) with an SSE-based waiting room
 - 0.3.0-alpha: Rotating log files, unit/integration test suite, retro synthwave/arcade CSS reskin
+- 0.4.0-alpha: Graceful shutdown, per-IP rate limiting, CI (build/vet/format/test/lint) + Dependabot, session-expiry UX notice, win/loading visual feedback
 
 ## TABLE OF CONTENT
 
@@ -26,6 +27,7 @@ _although some parts could have been a lot simpler, had I used some `JS`, I feel
   - [SESSIONS](#sessions)
   - [LOGGING](#logging)
   - [TESTING](#testing)
+  - [DEVELOPMENT](#development)
   - [PYTHON DRAFT](#python-draft)
 
 <!-- /TOC -->
@@ -66,6 +68,8 @@ Everything is driven by [config.json](config.json), read once at startup:
 | `LogFilePath`                       | Path to the rotating log file (see [LOGGING](#logging))                                    |
 | `LogMaxSizeMB`                      | Max size (MB) a log file reaches before it's rotated                                       |
 | `LogMaxBackups`                     | Max number of rotated log files kept around                                                |
+| `RateLimitRequestsPerSecond`        | Sustained requests/second allowed per client IP                                            |
+| `RateLimitBurst`                    | Max requests a single client IP can burst above the sustained rate                          |
 
 ## SESSIONS
 
@@ -79,6 +83,8 @@ Purging is lazy: nothing is evicted while there's a free slot. Only when a new c
 
 A waiting client isn't polling: it opens a single [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) connection (via the vendored [htmx-ext-sse](https://github.com/bigskysoftware/htmx-extensions/tree/main/src/sse) extension, no hand-written JS) and is pushed straight into a live game the moment a slot frees up.
 
+If a client comes back with a cookie for a session that's since been purged (evicted under capacity pressure while they were away), they're handed a fresh game along with a small on-screen notice explaining what happened, instead of a silently reset board.
+
 ## LOGGING
 
 All server output goes through the standard `log` package, which is wired (in `NewWebApp`) to write to both stdout and a rotating file at `LogFilePath`, via [lumberjack](https://github.com/natefinch/lumberjack). Once a log file reaches `LogMaxSizeMB`, it's rotated; once more than `LogMaxBackups` rotated files have piled up, the oldest is deleted. The log directory is created automatically if it doesn't exist.
@@ -89,7 +95,13 @@ All server output goes through the standard `log` package, which is wired (in `N
 go test ./...
 ```
 
-Covers unit tests per package (`grid`, `utils`, `session`, `template`) plus integration tests at the repo root (`main_test.go`) that spin up the real server and drive it over HTTP: full gameplay flow, per-client session isolation, the capacity/idle-timeout/SSE-waiting-room path, and regression tests for two previously-fixed bugs (a crash on malformed requests, and a reflected-XSS in error messages).
+Covers unit tests per package (`grid`, `utils`, `session`, `template`) plus integration tests at the repo root (`main_test.go`) that spin up the real server and drive it over HTTP: full gameplay flow, per-client session isolation, the capacity/idle-timeout/SSE-waiting-room path, rate limiting, the session-expiry notice, and regression tests for two previously-fixed bugs (a crash on malformed requests, and a reflected-XSS in error messages).
+
+## DEVELOPMENT
+
+CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs on every push/PR: `gofmt` check, `go build`, `go vet`, `go test ./...`, and [golangci-lint](https://golangci-lint.run/) (config: [.golangci.yml](.golangci.yml)). [Dependabot](.github/dependabot.yml) keeps `go.mod` and the CI Actions themselves up to date automatically (the vendored, self-hosted JS in `webui/assets/` isn't Go-module-tracked, so that still needs an occasional manual check upstream).
+
+The server shuts down gracefully on `SIGINT`/`SIGTERM` (or Ctrl+C): in-flight requests get up to 10 seconds to finish before the listener is forced closed.
 
 ## PYTHON DRAFT
 

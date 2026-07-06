@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"golang.org/x/time/rate"
 
 	grid "goSwitch/modules/grid"
 	session "goSwitch/modules/session"
@@ -52,6 +53,12 @@ func NewWebApp(configPath string) *WebAppX {
 
 	server := echo.New()
 	server.Use(middleware.Recover())
+	server.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStoreWithConfig(
+		middleware.RateLimiterMemoryStoreConfig{
+			Rate:  rate.Limit(config.RateLimitRequestsPerSecond),
+			Burst: config.RateLimitBurst,
+		},
+	)))
 	server.File("/favicon.ico", "webui/favicon.ico")
 	server.File("/assets/style.css", "webui/assets/style.css")
 	server.File("/assets/htmx.min.js", "webui/assets/htmx.min.js")
@@ -72,17 +79,23 @@ func NewWebApp(configPath string) *WebAppX {
 // resolveSession maps the incoming request to its session, minting a new candidate ID
 // when the client has none. The cookie is always (re)written, even when the manager is
 // at capacity, so a waiting client's later /wait SSE connection can claim the same ID
-// once a slot frees up.
-func (wx *WebAppX) resolveSession(c echo.Context) (*session.Session, bool) {
+// once a slot frees up. expired reports whether the client presented a cookie for a
+// session that no longer exists (it was purged for TTL/idle-timeout under capacity
+// pressure) and got a brand new one instead -- worth telling them, since otherwise
+// their board just silently resets with no explanation.
+func (wx *WebAppX) resolveSession(c echo.Context) (sess *session.Session, ok bool, expired bool) {
+	hadCookie := false
 	id := ""
-	if cookie, err := c.Cookie(sessionCookieName); err == nil {
+	if cookie, err := c.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
 		id = cookie.Value
+		hadCookie = true
 	}
 	if id == "" {
 		id = session.NewID()
 	}
 
-	sess, ok := wx.Sessions.Claim(id)
+	sess, ok, existed := wx.Sessions.Claim(id)
+	expired = hadCookie && ok && !existed
 
 	c.SetCookie(&http.Cookie{
 		Name:     sessionCookieName,
@@ -93,10 +106,10 @@ func (wx *WebAppX) resolveSession(c echo.Context) (*session.Session, bool) {
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	return sess, ok
+	return sess, ok, expired
 }
 
-func (wx *WebAppX) gameState(sess *session.Session) map[string]interface{} {
+func (wx *WebAppX) gameState(sess *session.Session, expired bool) map[string]interface{} {
 	resp := map[string]interface{}{
 		"Status": "SUCCESS",
 		"Error":  "",
@@ -115,6 +128,7 @@ func (wx *WebAppX) gameState(sess *session.Session) map[string]interface{} {
 		"Win":          sess.Game.CheckWin(),
 		"Response":     resp,
 		"Waiting":      false,
+		"Expired":      expired,
 		"SessionCount": wx.Sessions.Count(),
 		"MaxSessions":  wx.Config.MaxSessions,
 	}
@@ -129,9 +143,9 @@ func (wx *WebAppX) waitState() map[string]interface{} {
 }
 
 // renderSession locks sess, snapshots its state (merged with resp), renders and unlocks.
-func (wx *WebAppX) renderSession(c echo.Context, sess *session.Session, resp map[string]interface{}) error {
+func (wx *WebAppX) renderSession(c echo.Context, sess *session.Session, expired bool, resp map[string]interface{}) error {
 	sess.Lock()
-	state := utils.UpdateStateResponse(wx.gameState(sess), resp)
+	state := utils.UpdateStateResponse(wx.gameState(sess, expired), resp)
 	sess.Unlock()
 
 	return c.Render(http.StatusOK, "index", state)
@@ -140,7 +154,7 @@ func (wx *WebAppX) renderSession(c echo.Context, sess *session.Session, resp map
 func (wx *WebAppX) InitHTMX(c echo.Context) error {
 	line := utils.Trace()
 
-	sess, ok := wx.resolveSession(c)
+	sess, ok, expired := wx.resolveSession(c)
 	if !ok {
 		log.Printf("%s Client waiting for a session slot", line)
 		return c.Render(http.StatusOK, "index", wx.waitState())
@@ -149,7 +163,7 @@ func (wx *WebAppX) InitHTMX(c echo.Context) error {
 	log.Printf("%s Serving session %s", line, sess.ID)
 
 	sess.Lock()
-	state := wx.gameState(sess)
+	state := wx.gameState(sess, expired)
 	sess.Unlock()
 
 	return c.Render(http.StatusOK, "index", state)
@@ -158,7 +172,7 @@ func (wx *WebAppX) InitHTMX(c echo.Context) error {
 func (wx *WebAppX) Reset(c echo.Context) error {
 	line := utils.Trace()
 
-	sess, ok := wx.resolveSession(c)
+	sess, ok, expired := wx.resolveSession(c)
 	if !ok {
 		return c.Render(http.StatusOK, "index", wx.waitState())
 	}
@@ -166,21 +180,21 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 	jsonMap := utils.ProcessRequestForm(c)
 	resp := map[string]interface{}{"Status": "SUCCESS", "Error": ""}
 
-	log.Printf("%s Data recieved: %v\n", line, jsonMap)
+	log.Printf("%s Data received: %v\n", line, jsonMap)
 
 	dim, resp := utils.ParseDim(jsonMap, resp, line)
 	if resp["Status"] == "ERROR" {
-		return wx.renderSession(c, sess, resp)
+		return wx.renderSession(c, sess, expired, resp)
 	}
 
 	neighborhood, resp := utils.ParseNeighborhood(jsonMap, resp, line)
 	if resp["Status"] == "ERROR" {
-		return wx.renderSession(c, sess, resp)
+		return wx.renderSession(c, sess, expired, resp)
 	}
 
 	cheat, resp := utils.ParseCheat(jsonMap, resp, line)
 	if resp["Status"] == "ERROR" {
-		return wx.renderSession(c, sess, resp)
+		return wx.renderSession(c, sess, expired, resp)
 	}
 
 	sess.Lock()
@@ -193,7 +207,7 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 	log.Printf("%s Possible solution: %v\n", line, sess.Game.GetPossibleSolution())
 	sess.Game.PrettyPrintGrid()
 
-	state := utils.UpdateStateResponse(wx.gameState(sess), resp)
+	state := utils.UpdateStateResponse(wx.gameState(sess, expired), resp)
 	sess.Unlock()
 
 	return c.Render(http.StatusOK, "index", state)
@@ -202,7 +216,7 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 func (wx *WebAppX) RevertMove(c echo.Context) error {
 	line := utils.Trace()
 
-	sess, ok := wx.resolveSession(c)
+	sess, ok, expired := wx.resolveSession(c)
 	if !ok {
 		return c.Render(http.StatusOK, "index", wx.waitState())
 	}
@@ -222,7 +236,7 @@ func (wx *WebAppX) RevertMove(c echo.Context) error {
 
 		log.Printf("%s %s", line, resp["Error"])
 
-		return c.Render(http.StatusOK, "index", utils.UpdateStateResponse(wx.gameState(sess), resp))
+		return c.Render(http.StatusOK, "index", utils.UpdateStateResponse(wx.gameState(sess, expired), resp))
 	}
 
 	sess.Game.Switch(moves[len(moves)-1])
@@ -232,13 +246,13 @@ func (wx *WebAppX) RevertMove(c echo.Context) error {
 	log.Printf("%s Move History: %v\n", line, moves)
 	sess.Game.PrettyPrintGrid()
 
-	return c.Render(http.StatusOK, "index", utils.UpdateStateResponse(wx.gameState(sess), resp))
+	return c.Render(http.StatusOK, "index", utils.UpdateStateResponse(wx.gameState(sess, expired), resp))
 }
 
 func (wx *WebAppX) Switch(c echo.Context) error {
 	line := utils.Trace()
 
-	sess, ok := wx.resolveSession(c)
+	sess, ok, expired := wx.resolveSession(c)
 	if !ok {
 		return c.Render(http.StatusOK, "index", wx.waitState())
 	}
@@ -246,11 +260,11 @@ func (wx *WebAppX) Switch(c echo.Context) error {
 	jsonMap := utils.ProcessRequestQuery(c)
 	resp := map[string]interface{}{"Status": "SUCCESS", "Error": ""}
 
-	log.Printf("%s Data recieved: %v\n", line, jsonMap)
+	log.Printf("%s Data received: %v\n", line, jsonMap)
 
 	row, col, resp := utils.ParseRowCol(jsonMap, resp, line)
 	if resp["Status"] == "ERROR" {
-		return wx.renderSession(c, sess, resp)
+		return wx.renderSession(c, sess, expired, resp)
 	}
 
 	sess.Lock()
@@ -266,7 +280,7 @@ func (wx *WebAppX) Switch(c echo.Context) error {
 	log.Printf("%s Move History: %v\n", line, moves)
 	sess.Game.PrettyPrintGrid()
 
-	return c.Render(http.StatusOK, "index", utils.UpdateStateResponse(wx.gameState(sess), resp))
+	return c.Render(http.StatusOK, "index", utils.UpdateStateResponse(wx.gameState(sess, expired), resp))
 }
 
 // Wait serves an SSE stream for a client that couldn't get a session slot. It rechecks
@@ -297,13 +311,13 @@ func (wx *WebAppX) Wait(c echo.Context) error {
 			return nil
 
 		case <-ticker.C:
-			sess, ok := wx.Sessions.Claim(id)
+			sess, ok, _ := wx.Sessions.Claim(id)
 			if !ok {
 				continue
 			}
 
 			sess.Lock()
-			state := wx.gameState(sess)
+			state := wx.gameState(sess, false)
 			sess.Unlock()
 
 			var buf bytes.Buffer
@@ -311,7 +325,10 @@ func (wx *WebAppX) Wait(c echo.Context) error {
 				return err
 			}
 
-			writeSSEEvent(resp, "ready", buf.String())
+			if err := writeSSEEvent(resp, "ready", buf.String()); err != nil {
+				log.Printf("Wait -- failed writing SSE event (client likely disconnected): %v", err)
+				return nil
+			}
 			resp.Flush()
 
 			return nil
@@ -319,10 +336,15 @@ func (wx *WebAppX) Wait(c echo.Context) error {
 	}
 }
 
-func writeSSEEvent(w io.Writer, event, data string) {
-	fmt.Fprintf(w, "event: %s\n", event)
-	for _, line := range strings.Split(data, "\n") {
-		fmt.Fprintf(w, "data: %s\n", line)
+func writeSSEEvent(w io.Writer, event, data string) error {
+	if _, err := fmt.Fprintf(w, "event: %s\n", event); err != nil {
+		return err
 	}
-	fmt.Fprint(w, "\n")
+	for _, line := range strings.Split(data, "\n") {
+		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprint(w, "\n")
+	return err
 }

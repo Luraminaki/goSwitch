@@ -18,7 +18,7 @@ func TestRenderEscapesHTML(t *testing.T) {
 	path := filepath.Join(dir, "greeting.html")
 
 	content := `{{ define "greeting" }}<textarea>{{ .Message }}</textarea>{{ end }}`
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("failed to write temp template: %v", err)
 	}
 
@@ -45,7 +45,7 @@ func TestRenderSubstitutesData(t *testing.T) {
 	path := filepath.Join(dir, "hello.html")
 
 	content := `{{ define "hello" }}Hello, {{ .Name }}!{{ end }}`
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("failed to write temp template: %v", err)
 	}
 

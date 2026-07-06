@@ -43,6 +43,10 @@ func newTestConfigFile(t *testing.T, override func(*utils.Config)) string {
 		LogFilePath:                     filepath.Join(dir, "test.log"),
 		LogMaxSizeMB:                    5,
 		LogMaxBackups:                   5,
+		// Generous by default so ordinary tests firing several quick requests never
+		// get throttled; TestRateLimitBlocksExcessRequests overrides this deliberately.
+		RateLimitRequestsPerSecond: 1000,
+		RateLimitBurst:             1000,
 	}
 
 	if override != nil {
@@ -55,7 +59,7 @@ func newTestConfigFile(t *testing.T, override func(*utils.Config)) string {
 	}
 
 	path := filepath.Join(dir, "config.json")
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("failed to write test config: %v", err)
 	}
 
@@ -74,7 +78,7 @@ func newTestServer(t *testing.T, override func(*utils.Config)) *httptest.Server 
 
 	srv := httptest.NewServer(wx.Server)
 	t.Cleanup(srv.Close)
-	t.Cleanup(func() { wx.LogCloser.Close() })
+	t.Cleanup(func() { _ = wx.LogCloser.Close() })
 
 	return srv
 }
@@ -97,7 +101,7 @@ func mustGet(t *testing.T, client *http.Client, url string) (int, string) {
 	if err != nil {
 		t.Fatalf("GET %s failed: %v", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -114,7 +118,7 @@ func mustPostForm(t *testing.T, client *http.Client, rawURL string, form url.Val
 	if err != nil {
 		t.Fatalf("POST %s failed: %v", rawURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -267,7 +271,7 @@ func TestCapacityAndSSEWait(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /wait failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -282,5 +286,70 @@ func TestCapacityAndSSEWait(t *testing.T) {
 	_, bodyB = mustGet(t, clientB, srv.URL+"/")
 	if strings.Contains(bodyB, "All Tables Are Busy") {
 		t.Fatalf("client B should have a session after the wait resolved, got: %s", bodyB)
+	}
+}
+
+func TestRateLimitBlocksExcessRequests(t *testing.T) {
+	srv := newTestServer(t, func(c *utils.Config) {
+		c.RateLimitRequestsPerSecond = 1
+		c.RateLimitBurst = 1
+	})
+	client := newClient(t)
+
+	sawOK := false
+	sawThrottled := false
+
+	for i := 0; i < 20 && !sawThrottled; i++ {
+		status, _ := mustGet(t, client, srv.URL+"/")
+		switch status {
+		case http.StatusOK:
+			sawOK = true
+		case http.StatusTooManyRequests:
+			sawThrottled = true
+		default:
+			t.Fatalf("GET / = %d, want 200 or 429", status)
+		}
+	}
+
+	if !sawOK {
+		t.Fatal("expected at least one request to succeed before throttling kicked in")
+	}
+	if !sawThrottled {
+		t.Fatal("expected the rate limiter to eventually respond with 429 Too Many Requests")
+	}
+}
+
+// TestSessionExpiryNotice exercises the UX gap where a session gets silently purged
+// while its owner is away: the owner should be told, not just handed a blank fresh
+// board with no explanation.
+func TestSessionExpiryNotice(t *testing.T) {
+	srv := newTestServer(t, func(c *utils.Config) {
+		c.MaxSessions = 1
+		c.SessionIdleTimeoutSeconds = 1
+	})
+
+	clientA := newClient(t)
+	clientB := newClient(t)
+
+	_, bodyA := mustGet(t, clientA, srv.URL+"/")
+	if strings.Contains(bodyA, "SYSTEM MESSAGE") {
+		t.Fatalf("a first-ever visit should not show an expiry notice, got: %s", bodyA)
+	}
+
+	time.Sleep(1500 * time.Millisecond) // let client A's session go idle
+
+	// A second client claims the only slot, evicting A's now-idle session.
+	_, bodyB := mustGet(t, clientB, srv.URL+"/")
+	if strings.Contains(bodyB, "SYSTEM MESSAGE") {
+		t.Fatalf("a brand new client should never see an expiry notice, got: %s", bodyB)
+	}
+
+	time.Sleep(1500 * time.Millisecond) // let client B's session go idle too
+
+	// Client A comes back with its now-stale cookie; its old session is gone, so it
+	// gets a fresh one and should be told about it.
+	_, bodyA = mustGet(t, clientA, srv.URL+"/")
+	if !strings.Contains(bodyA, "SYSTEM MESSAGE") {
+		t.Fatalf("client A should see the expiry notice after its session was purged, got: %s", bodyA)
 	}
 }
