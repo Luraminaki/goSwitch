@@ -1,0 +1,10 @@
+{{ define "waiting" }}
+<h1>GO SWITCH</h1>
+
+<p class="session-badge">Sessions: {{ .SessionCount }}/{{ .MaxSessions }}</p>
+
+<fieldset>
+  <legend>All Tables Are Busy</legend>
+  <p>Every session slot is currently in use. Your game will start automatically as soon as one frees up.</p>
+</fieldset>
+{{ end }}

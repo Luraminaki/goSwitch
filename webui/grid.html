@@ -7,7 +7,7 @@
         {{ range $i, $row := .Board }}
           <div>
               {{ range $j, $cell := $row }}
-                <button class="grid-square"
+                <button class="grid-square" data-state="{{ $cell }}"
                         hx-post="/switch?row={{ $i }}&col={{ $j }}"
                         hx-target="#goSwitch">{{ $cell }}
                 </button>

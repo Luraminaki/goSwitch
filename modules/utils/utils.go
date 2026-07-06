@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"runtime"
 	"strconv"
@@ -18,25 +19,34 @@ type Config struct {
 	Dim                     int    `json:"Dim"`
 	ToggleSequence          []bool `json:"ToggleSequence"`
 	AvailableToggleSequence []int  `json:"AvailableToggleSequence"`
+
+	// MaxSessions caps the number of concurrent per-client sessions.
+	MaxSessions int `json:"MaxSessions"`
+	// SessionTTLSeconds is the absolute max lifetime of a session from creation.
+	SessionTTLSeconds int `json:"SessionTTLSeconds"`
+	// SessionIdleTimeoutSeconds is the max allowed inactivity for a session, enforced
+	// only when MaxSessions has been reached and a new session needs a slot.
+	SessionIdleTimeoutSeconds int `json:"SessionIdleTimeoutSeconds"`
+	// SessionWaitCheckIntervalSeconds is how often a waiting client is re-checked for
+	// a freed-up slot while it holds open its SSE connection.
+	SessionWaitCheckIntervalSeconds int `json:"SessionWaitCheckIntervalSeconds"`
+
+	// LogFilePath is where rotated log files are written.
+	LogFilePath string `json:"LogFilePath"`
+	// LogMaxSizeMB is the max size in megabytes a log file reaches before it's rotated.
+	LogMaxSizeMB int `json:"LogMaxSizeMB"`
+	// LogMaxBackups is the max number of rotated log files kept around.
+	LogMaxBackups int `json:"LogMaxBackups"`
 }
 
-func Trace(debug bool) string {
+// Trace returns the calling function's name, formatted as a log-line prefix.
+func Trace() string {
 	pc := make([]uintptr, 15)
 	n := runtime.Callers(2, pc)
 	frames := runtime.CallersFrames(pc[:n])
 	frame, _ := frames.Next()
 
-	var line string
-
-	if debug {
-		line = fmt.Sprintf("%s:%d -- %s --", frame.File, frame.Line, frame.Function)
-		fmt.Println(line)
-	} else {
-		line = fmt.Sprintf("%s --", frame.Function)
-		fmt.Println(line)
-	}
-
-	return line
+	return fmt.Sprintf("%s --", frame.Function)
 }
 
 func ParseJsonConfig(path string) Config {
@@ -55,7 +65,53 @@ func ParseJsonConfig(path string) Config {
 		log.Fatal("Error when parsing JSON file: ", err.Error())
 	}
 
+	if err := validateConfig(&config); err != nil {
+		log.Fatal("Error when validating config: ", err.Error())
+	}
+
 	return config
+}
+
+func validateConfig(config *Config) error {
+	if config.Dim < 2 || config.Dim > 5 {
+		return fmt.Errorf("'Dim' must be in [2, 5], got %d", config.Dim)
+	}
+
+	if len(config.ToggleSequence) != len(config.AvailableToggleSequence) {
+		return fmt.Errorf("'ToggleSequence' (len %d) must match 'AvailableToggleSequence' (len %d)",
+			len(config.ToggleSequence), len(config.AvailableToggleSequence))
+	}
+
+	if config.MaxSessions < 1 {
+		return fmt.Errorf("'MaxSessions' must be >= 1, got %d", config.MaxSessions)
+	}
+
+	if config.SessionTTLSeconds < 1 {
+		return fmt.Errorf("'SessionTTLSeconds' must be >= 1, got %d", config.SessionTTLSeconds)
+	}
+
+	if config.SessionIdleTimeoutSeconds < 1 || config.SessionIdleTimeoutSeconds > config.SessionTTLSeconds {
+		return fmt.Errorf("'SessionIdleTimeoutSeconds' must be in [1, SessionTTLSeconds=%d], got %d",
+			config.SessionTTLSeconds, config.SessionIdleTimeoutSeconds)
+	}
+
+	if config.SessionWaitCheckIntervalSeconds < 1 {
+		return fmt.Errorf("'SessionWaitCheckIntervalSeconds' must be >= 1, got %d", config.SessionWaitCheckIntervalSeconds)
+	}
+
+	if config.LogFilePath == "" {
+		return fmt.Errorf("'LogFilePath' must not be empty")
+	}
+
+	if config.LogMaxSizeMB < 1 {
+		return fmt.Errorf("'LogMaxSizeMB' must be >= 1, got %d", config.LogMaxSizeMB)
+	}
+
+	if config.LogMaxBackups < 1 {
+		return fmt.Errorf("'LogMaxBackups' must be >= 1, got %d", config.LogMaxBackups)
+	}
+
+	return nil
 }
 
 func BuildNeighborhoodFromConfig(config *Config) []int {
@@ -90,67 +146,61 @@ func BuildToggleSequenceFromRequest(neighborhood []int, availableToggleSequence 
 	return togglesequence
 }
 
-func ProcessRequestJson(c echo.Context) (map[string]interface{}, map[string]interface{}) {
-	resp := map[string]interface{}{
-		"Status": "SUCCESS",
-		"Error":  "",
-	}
-
+func valuesToJsonMap(values url.Values) map[string]interface{} {
 	jsonMap := make(map[string]interface{})
 
-	err := json.NewDecoder(c.Request().Body).Decode(&jsonMap)
-	if err != nil {
-		resp["Status"] = "ERROR"
-		resp["Error"] = "Params error: " + err.Error()
+	for k, v := range values {
+		if len(v) == 0 {
+			continue
+		}
+		jsonMap[k] = v
 	}
 
-	return resp, jsonMap
+	return jsonMap
 }
 
-func ProcessRequestForm(c echo.Context) (map[string]interface{}, map[string]interface{}) {
-	resp := map[string]interface{}{
-		"Status": "SUCCESS",
-		"Error":  "",
-	}
-
-	jsonMap := make(map[string]interface{})
-
+// ProcessRequestForm reads the request's form fields. There is no failure mode: a
+// missing/empty field simply results in a missing key, handled by the Parse* helpers.
+func ProcessRequestForm(c echo.Context) map[string]interface{} {
 	form, _ := c.FormParams()
-	for k, v := range form {
-		switch len(v) {
-		case 0:
-			continue
-		default:
-			jsonMap[k] = v
-		}
-	}
-
-	return resp, jsonMap
+	return valuesToJsonMap(form)
 }
 
-func ProcessRequestQuery(c echo.Context) (map[string]interface{}, map[string]interface{}) {
-	resp := map[string]interface{}{
-		"Status": "SUCCESS",
-		"Error":  "",
+// ProcessRequestQuery reads the request's query string params. There is no failure
+// mode: a missing/empty field simply results in a missing key, handled by the Parse*
+// helpers.
+func ProcessRequestQuery(c echo.Context) map[string]interface{} {
+	return valuesToJsonMap(c.QueryParams())
+}
+
+// firstFormValue safely extracts the first value of a form/query field produced by
+// ProcessRequestForm / ProcessRequestQuery, without panicking if the key is missing
+// or holds an unexpected type (both reachable by hitting the endpoints directly).
+func firstFormValue(jsonMap map[string]interface{}, key string) (string, bool) {
+	raw, ok := jsonMap[key]
+	if !ok {
+		return "", false
 	}
 
-	jsonMap := make(map[string]interface{})
-
-	query := c.QueryParams()
-	for k, v := range query {
-		switch len(v) {
-		case 0:
-			continue
-		default:
-			jsonMap[k] = v
-		}
+	values, ok := raw.([]string)
+	if !ok || len(values) == 0 {
+		return "", false
 	}
 
-	return resp, jsonMap
+	return values[0], true
 }
 
 func ParseDim(jsonMap map[string]interface{}, resp map[string]interface{}, line string) (int, map[string]interface{}) {
-	dim, err := strconv.Atoi(fmt.Sprintf("%v", jsonMap["dim"].([]string)[0]))
+	raw, ok := firstFormValue(jsonMap, "dim")
+	if !ok {
+		resp["Status"] = "ERROR"
+		resp["Error"] = "Params error: 'dim' key missing"
+		log.Printf("%s %s", line, resp["Error"])
+
+		return -1, resp
+	}
+
+	dim, err := strconv.Atoi(raw)
 
 	if err != nil {
 		resp["Status"] = "ERROR"
@@ -172,8 +222,9 @@ func ParseDim(jsonMap map[string]interface{}, resp map[string]interface{}, line 
 }
 
 func ParseNeighborhood(jsonMap map[string]interface{}, resp map[string]interface{}, line string) ([]int, map[string]interface{}) {
-	neigh := jsonMap["neighborhood"]
-	if neigh == nil {
+	raw, ok := jsonMap["neighborhood"]
+	values, valuesOk := raw.([]string)
+	if !ok || raw == nil || !valuesOk {
 		resp["Status"] = "ERROR"
 		resp["Error"] = "Params error: 'neighborhood' key missing"
 		log.Printf("%s %s", line, resp["Error"])
@@ -182,7 +233,7 @@ func ParseNeighborhood(jsonMap map[string]interface{}, resp map[string]interface
 	}
 
 	var neighborhood = []int{}
-	for _, i := range neigh.([]string) {
+	for _, i := range values {
 		j, err := strconv.Atoi(i)
 		if err != nil {
 			resp["Status"] = "ERROR"
@@ -207,8 +258,8 @@ func ParseNeighborhood(jsonMap map[string]interface{}, resp map[string]interface
 
 func ParseCheat(jsonMap map[string]interface{}, resp map[string]interface{}, line string) (bool, map[string]interface{}) {
 	cheat := false
-	if jsonMap["cheat"] != nil {
-		cheatInt, err := strconv.Atoi(fmt.Sprintf("%v", jsonMap["cheat"].([]string)[0]))
+	if raw, ok := firstFormValue(jsonMap, "cheat"); ok {
+		cheatInt, err := strconv.Atoi(raw)
 		if err != nil {
 			resp["Status"] = "ERROR"
 			resp["Error"] = "Params error: " + err.Error()
@@ -223,7 +274,16 @@ func ParseCheat(jsonMap map[string]interface{}, resp map[string]interface{}, lin
 }
 
 func ParseRowCol(jsonMap map[string]interface{}, resp map[string]interface{}, line string) (int, int, map[string]interface{}) {
-	row, err := strconv.Atoi(fmt.Sprintf("%v", jsonMap["row"].([]string)[0]))
+	rowRaw, ok := firstFormValue(jsonMap, "row")
+	if !ok {
+		resp["Status"] = "ERROR"
+		resp["Error"] = "Params error: 'row' key missing"
+		log.Printf("%s %s", line, resp["Error"])
+
+		return -1, -1, resp
+	}
+
+	row, err := strconv.Atoi(rowRaw)
 
 	if err != nil {
 		resp["Status"] = "ERROR"
@@ -233,7 +293,16 @@ func ParseRowCol(jsonMap map[string]interface{}, resp map[string]interface{}, li
 		return -1, -1, resp
 	}
 
-	col, err := strconv.Atoi(fmt.Sprintf("%v", jsonMap["col"].([]string)[0]))
+	colRaw, ok := firstFormValue(jsonMap, "col")
+	if !ok {
+		resp["Status"] = "ERROR"
+		resp["Error"] = "Params error: 'col' key missing"
+		log.Printf("%s %s", line, resp["Error"])
+
+		return -1, -1, resp
+	}
+
+	col, err := strconv.Atoi(colRaw)
 
 	if err != nil {
 		resp["Status"] = "ERROR"
@@ -249,12 +318,4 @@ func ParseRowCol(jsonMap map[string]interface{}, resp map[string]interface{}, li
 func UpdateStateResponse(state map[string]interface{}, resp map[string]interface{}) map[string]interface{} {
 	state["Response"] = resp
 	return state
-}
-
-func ConvertSlice[E any](in []any) (out []E) {
-	out = make([]E, 0, len(in))
-	for _, v := range in {
-		out = append(out, v.(E))
-	}
-	return
 }

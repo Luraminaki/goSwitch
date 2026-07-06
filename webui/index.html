@@ -19,28 +19,15 @@
     <link rel="stylesheet" href="./assets/style.css">
 
     <script defer src="./assets/htmx.min.js"></script>
+    <script defer src="./assets/sse.min.js"></script>
   </head>
 
-  <body id="goSwitch">
-    <h1>GO SWITCH</h1>
-
-    <div class="is-flex">
-      <div id="game-configuration" class="field-template">
-        {{ template "configuration" . }}
-      </div>
-
-      <div id="game-trivia" class="field-template">
-        {{ template "trivia" . }}
-      </div>
-
-      <div class="game-response" class="field-template">
-        {{ template "response" . }}
-      </div>
-    </div>
-
-    <div class="game-canvas">
-      {{ template "grid" . }}
-    </div>
+  <body id="goSwitch" {{ if .Waiting }}hx-ext="sse" sse-connect="/wait" sse-swap="ready" sse-close="ready"{{ end }}>
+    {{ if .Waiting }}
+      {{ template "waiting" . }}
+    {{ else }}
+      {{ template "game" . }}
+    {{ end }}
   </body>
 
 </html>

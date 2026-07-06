@@ -1,0 +1,23 @@
+{{ define "game" }}
+<h1>GO SWITCH</h1>
+
+<p class="session-badge">Sessions: {{ .SessionCount }}/{{ .MaxSessions }}</p>
+
+<div class="is-flex">
+  <div id="game-configuration" class="field-template">
+    {{ template "configuration" . }}
+  </div>
+
+  <div id="game-trivia" class="field-template">
+    {{ template "trivia" . }}
+  </div>
+
+  <div class="game-response field-template">
+    {{ template "response" . }}
+  </div>
+</div>
+
+<div class="game-canvas">
+  {{ template "grid" . }}
+</div>
+{{ end }}

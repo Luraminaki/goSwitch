@@ -3,7 +3,7 @@ package template
 import (
 	"io"
 
-	"text/template"
+	"html/template"
 
 	"github.com/labstack/echo/v4"
 )
@@ -17,7 +17,7 @@ func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Con
 }
 
 func NewTemplateRenderer(e *echo.Echo, paths ...string) {
-	tmpl := &template.Template{}
+	tmpl := template.New("")
 	for i := range paths {
 		template.Must(tmpl.ParseGlob(paths[i]))
 	}
