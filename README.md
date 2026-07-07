@@ -24,6 +24,7 @@ _although some parts could have been a lot simpler, had I used some `JS`, I feel
 - [GOSWITCH](#goswitch)
   - [VERSIONS](#versions)
   - [TABLE OF CONTENT](#table-of-content)
+  - [TL;DR](#tldr)
   - [INSTALL AND RUN](#install-and-run)
   - [CONFIGURATION](#configuration)
   - [SESSIONS](#sessions)
@@ -33,6 +34,10 @@ _although some parts could have been a lot simpler, had I used some `JS`, I feel
   - [PYTHON DRAFT](#python-draft)
 
 <!-- /TOC -->
+
+## TL;DR
+
+"I don't want to install anything or read anything, just make it quick and easy please." I hear you say? Sure, just click [here](https://goswitch.onrender.com/) and have fun. 
 
 ## INSTALL AND RUN
 
