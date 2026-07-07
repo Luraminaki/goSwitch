@@ -13,9 +13,9 @@ jobs:
     name: Build, vet, format, test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
@@ -41,12 +41,15 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
-      - uses: golangci/golangci-lint-action@v6
+      # Pinned rather than "latest": golangci-lint v2 is a breaking config-format change
+      # from v1 (see .golangci.yml's `version: "2"`), so an unpinned jump to a future v3
+      # would silently break this the same way v1 -> v2 just did.
+      - uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.12.2

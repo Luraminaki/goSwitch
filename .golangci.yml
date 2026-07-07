@@ -1,11 +1,10 @@
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
   enable:
-    - gofmt
-    - goimports
-    - misspell
     - unconvert
     - unparam
     - bodyclose
@@ -17,16 +16,20 @@ linters:
     - errorlint
     - wastedassign
     - contextcheck
+    - misspell
+  exclusions:
+    rules:
+      # This project deliberately writes no comments unless the WHY is
+      # non-obvious (see CLAUDE guidance) -- revive's doc-comment rules fight
+      # that style. Its other checks (var-naming, etc.) still apply.
+      - linters: [revive]
+        text: "exported|package-comments"
+      # log.Fatal terminates the process immediately, so the deferred Close()
+      # right before it not running is moot -- the OS reclaims the handle anyway.
+      - linters: [gocritic]
+        text: "exitAfterDefer"
 
-issues:
-  exclude-use-default: false
-  exclude-rules:
-    # This project deliberately writes no comments unless the WHY is
-    # non-obvious (see CLAUDE guidance) -- revive's doc-comment rules fight
-    # that style. Its other checks (var-naming, etc.) still apply.
-    - linters: [revive]
-      text: "exported|package-comments"
-    # log.Fatal terminates the process immediately, so the deferred Close()
-    # right before it not running is moot -- the OS reclaims the handle anyway.
-    - linters: [gocritic]
-      text: "exitAfterDefer"
+formatters:
+  enable:
+    - gofmt
+    - goimports
