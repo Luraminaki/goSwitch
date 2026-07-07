@@ -1,3 +1,6 @@
+// Package session implements per-client game sessions: a capacity-bounded,
+// cookie-keyed Manager that lazily purges TTL-expired or idle sessions only when
+// a new one needs a slot.
 package session
 
 import (

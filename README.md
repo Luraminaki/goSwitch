@@ -15,6 +15,7 @@ _although some parts could have been a lot simpler, had I used some `JS`, I feel
 - 0.3.0-alpha: Rotating log files, unit/integration test suite, retro synthwave/arcade CSS reskin
 - 0.4.0-alpha: Graceful shutdown, per-IP rate limiting, CI (build/vet/format/test/lint) + Dependabot, session-expiry UX notice, win/loading visual feedback
 - 0.4.1-alpha: Structured `log/slog`-based logging (Python `logging`-style formatted lines, configurable level), flashing retro "YOU WIN" banner
+- 0.4.2-alpha: Mobile fix (title clipping on narrow screens), expanded linting (`revive`, `gocritic`, `prealloc`, `nestif`, `errorlint`, `wastedassign`, `contextcheck`), idiomatic Go naming cleanups, package doc comments,  dependency/vulnerability audit (all clean)
 
 ## TABLE OF CONTENT
 

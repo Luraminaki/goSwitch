@@ -238,7 +238,7 @@ func TestValidateConfig(t *testing.T) {
 	}
 }
 
-func TestParseJsonConfigValidFile(t *testing.T) {
+func TestParseJSONConfigValidFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 
@@ -264,10 +264,10 @@ func TestParseJsonConfigValidFile(t *testing.T) {
 		t.Fatalf("failed to write temp config: %v", err)
 	}
 
-	config := ParseJsonConfig(path)
+	config := ParseJSONConfig(path)
 
 	if config.Port != "10000" || config.Dim != 3 || config.MaxSessions != 10 {
-		t.Errorf("ParseJsonConfig() = %+v, unexpected values", config)
+		t.Errorf("ParseJSONConfig() = %+v, unexpected values", config)
 	}
 }
 

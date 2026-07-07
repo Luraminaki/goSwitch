@@ -1,3 +1,5 @@
+// Package template adapts Go's html/template to echo.Renderer, parsing all
+// webui/*.html files up front and dispatching by template name.
 package template
 
 import (
@@ -12,7 +14,7 @@ type Template struct {
 	Templates *template.Template
 }
 
-func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+func (t *Template) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
 	return t.Templates.ExecuteTemplate(w, name, data)
 }
 

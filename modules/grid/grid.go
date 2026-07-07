@@ -1,3 +1,6 @@
+// Package grid implements the switch-toggle puzzle board: a square grid of
+// two-state cells where switching one cell also flips its neighbors according to
+// a configurable pattern (self, orthogonal, and/or diagonal).
 package grid
 
 import (

@@ -66,6 +66,20 @@ h1 {
     0 0 48px var(--neon-cyan);
 }
 
+/* Below this, the letter-spacing above makes "GO SWITCH" wide enough to clip
+   (its natural width is ~500-525px, so this needs real margin below that). */
+@media (max-width: 600px) {
+  h1 {
+    font-size: 1.6rem;
+    letter-spacing: 0.1em;
+  }
+
+  .win-banner {
+    font-size: 1.1rem;
+    letter-spacing: 0.15em;
+  }
+}
+
 .session-badge {
   display: inline-block;
   margin: 0 0 20px;
