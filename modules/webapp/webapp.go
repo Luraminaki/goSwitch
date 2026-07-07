@@ -99,12 +99,16 @@ func (wx *WebAppX) resolveSession(c echo.Context) (sess *session.Session, ok boo
 	sess, ok, existed := wx.Sessions.Claim(id)
 	expired = hadCookie && ok && !existed
 
+	// Secure is a literal `true` (not scheme-conditional) since browsers special-case
+	// localhost/loopback as a secure context, so it still works for local http
+	// development while being correct for the https production deployment.
 	c.SetCookie(&http.Cookie{
 		Name:     sessionCookieName,
 		Value:    id,
 		Path:     "/",
 		MaxAge:   wx.Config.SessionTTLSeconds,
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
 
