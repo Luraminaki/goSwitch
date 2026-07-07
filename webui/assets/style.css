@@ -305,8 +305,12 @@ button.htmx-request {
   50%      { box-shadow: 0 0 28px var(--neon-cyan), 0 0 52px var(--neon-pink); }
 }
 
-/* Arcade-marquee style flashing banner, shown alongside the glow above. */
+/* Arcade-marquee style flashing banner, shown alongside the glow above.
+   Explicit flex centering here instead of relying on inherited text-align,
+   so centering can't be thrown off by letter-spacing/box-width quirks. */
 .win-banner {
+  display: flex;
+  justify-content: center;
   margin: 8px 0 4px;
   font-size: 1.8rem;
   font-weight: bold;

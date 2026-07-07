@@ -23,3 +23,4 @@ go.work
 # Rotated log files (see config.json's LogFilePath)
 /logs/
 *.txt
+*.log
