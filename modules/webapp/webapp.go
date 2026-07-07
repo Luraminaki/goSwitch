@@ -99,18 +99,25 @@ func (wx *WebAppX) resolveSession(c echo.Context) (sess *session.Session, ok boo
 	sess, ok, existed := wx.Sessions.Claim(id)
 	expired = hadCookie && ok && !existed
 
-	// Secure is a literal `true` (not scheme-conditional) since browsers special-case
-	// localhost/loopback as a secure context, so it still works for local http
-	// development while being correct for the https production deployment.
-	c.SetCookie(&http.Cookie{
+	cookie := &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    id,
 		Path:     "/",
 		MaxAge:   wx.Config.SessionTTLSeconds,
 		HttpOnly: true,
-		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
-	})
+	}
+	// Set on its own line, conditioned on the actual request scheme, rather than an
+	// unconditional Secure: true -- the httptest-driven integration tests talk plain
+	// http to a loopback server, and relying on stdlib cookiejar's "treat loopback as
+	// secure" exception (net/http/cookiejar) is version-dependent: it's present in
+	// newer Go toolchains but not the one this repo's go.mod/CI currently targets.
+	// c.Scheme() honors X-Forwarded-Proto, so this is still "https" in production
+	// behind a TLS-terminating proxy.
+	if c.Scheme() == "https" {
+		cookie.Secure = true
+	}
+	c.SetCookie(cookie)
 
 	return sess, ok, expired
 }
