@@ -1,3 +1,5 @@
+// Package webapp wires goSwitch's HTTP handlers, session resolution, and
+// templates together into the echo server that main.go starts.
 package webapp
 
 import (
@@ -48,7 +50,7 @@ type configView struct {
 // WebApp
 
 func NewWebApp(configPath string) *WebAppX {
-	config := utils.ParseJsonConfig(configPath)
+	config := utils.ParseJSONConfig(configPath)
 	logCloser := utils.SetupLogging(&config)
 
 	server := echo.New()

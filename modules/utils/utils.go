@@ -1,3 +1,5 @@
+// Package utils holds cross-cutting helpers shared by the rest of goSwitch:
+// config loading/validation, structured logging setup, and request parsing.
 package utils
 
 import (
@@ -47,7 +49,7 @@ type Config struct {
 	RateLimitBurst int `json:"RateLimitBurst"`
 }
 
-func ParseJsonConfig(path string) Config {
+func ParseJSONConfig(path string) Config {
 	jsonFile, err := os.Open(path) //nolint:gosec // path is a trusted, operator-supplied startup argument, not user input
 
 	if err != nil {
@@ -138,25 +140,24 @@ func BuildNeighborhoodFromConfig(config *Config) []int {
 
 func BuildToggleSequenceFromRequest(neighborhood []int, availableToggleSequence []int) []bool {
 	togglesequence := make([]bool, 0, len(availableToggleSequence))
-	val_found := false
 
 	for _, val := range availableToggleSequence {
-		val_found = false
+		valFound := false
 
 		for _, neigh := range neighborhood {
-			val_found = val == neigh
-			if val_found {
+			valFound = val == neigh
+			if valFound {
 				break
 			}
 		}
 
-		togglesequence = append(togglesequence, val_found)
+		togglesequence = append(togglesequence, valFound)
 	}
 
 	return togglesequence
 }
 
-func valuesToJsonMap(values url.Values) map[string]interface{} {
+func valuesToJSONMap(values url.Values) map[string]interface{} {
 	jsonMap := make(map[string]interface{})
 
 	for k, v := range values {
@@ -173,14 +174,14 @@ func valuesToJsonMap(values url.Values) map[string]interface{} {
 // missing/empty field simply results in a missing key, handled by the Parse* helpers.
 func ProcessRequestForm(c echo.Context) map[string]interface{} {
 	form, _ := c.FormParams()
-	return valuesToJsonMap(form)
+	return valuesToJSONMap(form)
 }
 
 // ProcessRequestQuery reads the request's query string params. There is no failure
 // mode: a missing/empty field simply results in a missing key, handled by the Parse*
 // helpers.
 func ProcessRequestQuery(c echo.Context) map[string]interface{} {
-	return valuesToJsonMap(c.QueryParams())
+	return valuesToJSONMap(c.QueryParams())
 }
 
 // firstFormValue safely extracts the first value of a form/query field produced by

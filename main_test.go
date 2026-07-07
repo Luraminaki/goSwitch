@@ -98,7 +98,12 @@ func newClient(t *testing.T) *http.Client {
 func mustGet(t *testing.T, client *http.Client, url string) (int, string) {
 	t.Helper()
 
-	resp, err := client.Get(url)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("failed to build GET %s request: %v", url, err)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("GET %s failed: %v", url, err)
 	}
@@ -115,18 +120,29 @@ func mustGet(t *testing.T, client *http.Client, url string) (int, string) {
 func mustPostForm(t *testing.T, client *http.Client, rawURL string, form url.Values) (int, string) {
 	t.Helper()
 
-	resp, err := client.PostForm(rawURL, form)
+	var body io.Reader
+	if form != nil {
+		body = strings.NewReader(form.Encode())
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, rawURL, body)
+	if err != nil {
+		t.Fatalf("failed to build POST %s request: %v", rawURL, err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("POST %s failed: %v", rawURL, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("reading response body failed: %v", err)
 	}
 
-	return resp.StatusCode, string(body)
+	return resp.StatusCode, string(respBody)
 }
 
 func TestFullGamePlayFlow(t *testing.T) {
