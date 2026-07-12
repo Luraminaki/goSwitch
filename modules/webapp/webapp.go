@@ -30,6 +30,7 @@ type WebAppX struct {
 	Config   *utils.Config
 	Sessions *session.Manager
 	Server   *echo.Echo
+	Version  string
 
 	// LogCloser releases the rotating log file's handle. Production code doesn't
 	// need to call it (the process holds it for its whole lifetime), but callers
@@ -122,37 +123,46 @@ func (wx *WebAppX) resolveSession(c echo.Context) (sess *session.Session, ok boo
 	return sess, ok, expired
 }
 
+// baseState holds the keys every rendered page needs regardless of whether a client
+// has a live session or is waiting for one, so gameState and waitState can't drift on
+// them independently.
+func (wx *WebAppX) baseState() map[string]interface{} {
+	return map[string]interface{}{
+		"SessionCount": wx.Sessions.Count(),
+		"MaxSessions":  wx.Config.MaxSessions,
+		"Version":      wx.Version,
+	}
+}
+
 func (wx *WebAppX) gameState(sess *session.Session, expired bool) map[string]interface{} {
 	resp := map[string]interface{}{
 		"Status": "SUCCESS",
 		"Error":  "",
 	}
 
-	return map[string]interface{}{
-		"Config": configView{
-			Dim:                     sess.Dim,
-			Cheat:                   sess.Cheat,
-			ToggleSequence:          sess.ToggleSequence,
-			AvailableToggleSequence: wx.Config.AvailableToggleSequence,
-		},
-		"Board":        sess.Game.GetGrid(),
-		"Solution":     sess.Game.GetPossibleSolution(),
-		"Moves":        sess.Game.GetPreviousMoves(),
-		"Win":          sess.Game.CheckWin(),
-		"Response":     resp,
-		"Waiting":      false,
-		"Expired":      expired,
-		"SessionCount": wx.Sessions.Count(),
-		"MaxSessions":  wx.Config.MaxSessions,
+	state := wx.baseState()
+	state["Config"] = configView{
+		Dim:                     sess.Dim,
+		Cheat:                   sess.Cheat,
+		ToggleSequence:          sess.ToggleSequence,
+		AvailableToggleSequence: wx.Config.AvailableToggleSequence,
 	}
+	state["Board"] = sess.Game.GetGrid()
+	state["Solution"] = sess.Game.GetPossibleSolution()
+	state["Moves"] = sess.Game.GetPreviousMoves()
+	state["Win"] = sess.Game.CheckWin()
+	state["Response"] = resp
+	state["Waiting"] = false
+	state["Expired"] = expired
+
+	return state
 }
 
 func (wx *WebAppX) waitState() map[string]interface{} {
-	return map[string]interface{}{
-		"Waiting":      true,
-		"SessionCount": wx.Sessions.Count(),
-		"MaxSessions":  wx.Config.MaxSessions,
-	}
+	state := wx.baseState()
+	state["Waiting"] = true
+
+	return state
 }
 
 // renderSession locks sess, snapshots its state (merged with resp), renders and unlocks.

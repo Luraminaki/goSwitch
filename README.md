@@ -8,21 +8,18 @@ Fast forward to 2024, after recieving some UIX advices from a former colleague a
 
 _although some parts could have been a lot simpler, had I used some `JS`, I feel that it would have defeated the whole purpose of this project which was to stick to `Go` and `HTMX` as much as possible..._
 
-## VERSIONS
+## VERSION
 
-- 0.1.0-alpha: First release
-- 0.2.0-alpha: Bug fixes, dependency upgrades, per-client sessions (capacity limit, TTL, idle timeout) with an SSE-based waiting room
-- 0.3.0-alpha: Rotating log files, unit/integration test suite, retro synthwave/arcade CSS reskin
-- 0.4.0-alpha: Graceful shutdown, per-IP rate limiting, CI (build/vet/format/test/lint) + Dependabot, session-expiry UX notice, win/loading visual feedback
-- 0.4.1-alpha: Structured `log/slog`-based logging (Python `logging`-style formatted lines, configurable level), flashing retro "YOU WIN" banner
-- 0.4.2-alpha: Mobile fix (title clipping on narrow screens), expanded linting (`revive`, `gocritic`, `prealloc`, `nestif`, `errorlint`, `wastedassign`, `contextcheck`), idiomatic Go naming cleanups, package doc comments,  dependency/vulnerability audit (all clean)
+The current version lives in [VERSION](VERSION) -- it's embedded into the binary at
+build time and shown as a badge in the running app. See [CHANGELOG.md](CHANGELOG.md)
+for the full version history.
 
 ## TABLE OF CONTENT
 
 <!-- TOC -->
 
 - [GOSWITCH](#goswitch)
-  - [VERSIONS](#versions)
+  - [VERSION](#version)
   - [TABLE OF CONTENT](#table-of-content)
   - [TL;DR](#tldr)
   - [INSTALL AND RUN](#install-and-run)
