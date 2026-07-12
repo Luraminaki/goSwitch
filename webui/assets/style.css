@@ -80,17 +80,32 @@ h1 {
   }
 }
 
-.session-badge {
+.session-badge,
+.version-badge {
   display: inline-block;
   margin: 0 0 20px;
   padding: 4px 14px;
   font-size: 0.8rem;
   letter-spacing: 0.15em;
+  border-radius: 999px;
+}
+
+.session-badge {
   text-transform: uppercase;
   color: var(--bg-void);
   background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink));
-  border-radius: 999px;
   box-shadow: 0 0 10px rgba(0, 255, 242, 0.6);
+}
+
+/* Quieter than .session-badge -- this is incidental build info, not game state. */
+.version-badge {
+  margin-left: 8px;
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  background: rgba(157, 134, 201, 0.12);
+  border: 1px solid var(--neon-violet);
 }
 
 .notice {

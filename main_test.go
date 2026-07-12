@@ -71,6 +71,7 @@ func newTestServer(t *testing.T, override func(*utils.Config)) *httptest.Server 
 	t.Helper()
 
 	wx := webapp.NewWebApp(newTestConfigFile(t, override))
+	wx.Version = "test"
 	wx.Server.POST("/reset", wx.Reset)
 	wx.Server.POST("/switch", wx.Switch)
 	wx.Server.GET("/revert", wx.RevertMove)
@@ -155,6 +156,9 @@ func TestFullGamePlayFlow(t *testing.T) {
 	}
 	if !strings.Contains(body, "Sessions: 1/10") {
 		t.Fatalf("GET / body missing session badge, got: %s", body)
+	}
+	if !strings.Contains(body, `<p class="version-badge">vtest</p>`) {
+		t.Fatalf("GET / body missing version badge, got: %s", body)
 	}
 
 	status, body = mustPostForm(t, client, srv.URL+"/switch?row=0&col=0", nil)
@@ -368,5 +372,36 @@ func TestSessionExpiryNotice(t *testing.T) {
 	_, bodyA = mustGet(t, clientA, srv.URL+"/")
 	if !strings.Contains(bodyA, "SYSTEM MESSAGE") {
 		t.Fatalf("client A should see the expiry notice after its session was purged, got: %s", bodyA)
+	}
+}
+
+// TestVersionMatchesChangelog guards against VERSION and CHANGELOG.md silently
+// drifting apart -- nothing else (the build, CI) checks that the embedded version and
+// the changelog's most recent entry agree.
+func TestVersionMatchesChangelog(t *testing.T) {
+	versionBytes, err := os.ReadFile("VERSION")
+	if err != nil {
+		t.Fatalf("failed to read VERSION: %v", err)
+	}
+	version := strings.TrimSpace(string(versionBytes))
+
+	changelogBytes, err := os.ReadFile("CHANGELOG.md")
+	if err != nil {
+		t.Fatalf("failed to read CHANGELOG.md: %v", err)
+	}
+
+	var latest string
+	for _, line := range strings.Split(string(changelogBytes), "\n") {
+		if strings.HasPrefix(line, "## ") {
+			latest = strings.TrimSpace(strings.TrimPrefix(line, "## "))
+			break
+		}
+	}
+
+	if latest == "" {
+		t.Fatal(`CHANGELOG.md has no "## " version heading`)
+	}
+	if latest != version {
+		t.Fatalf("CHANGELOG.md's latest entry (%q) does not match VERSION (%q)", latest, version)
 	}
 }

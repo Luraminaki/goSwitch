@@ -1,7 +1,5 @@
 {{ define "waiting" }}
-<h1>GO SWITCH</h1>
-
-<p class="session-badge">Sessions: {{ .SessionCount }}/{{ .MaxSessions }}</p>
+{{ template "status-header" . }}
 
 <fieldset>
   <legend>All Tables Are Busy</legend>

@@ -1,7 +1,5 @@
 {{ define "game" }}
-<h1>GO SWITCH</h1>
-
-<p class="session-badge">Sessions: {{ .SessionCount }}/{{ .MaxSessions }}</p>
+{{ template "status-header" . }}
 
 {{ if .Expired }}
 <p class="notice">SYSTEM MESSAGE: Your previous session expired -- starting fresh.</p>
