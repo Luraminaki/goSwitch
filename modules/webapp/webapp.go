@@ -355,8 +355,8 @@ func (wx *WebAppX) RevertMove(c echo.Context) error {
 
 	sess.Lock()
 
-	moves := sess.Game.GetPreviousMoves()
-	if moves == nil {
+	pos, ok := sess.Game.PopLastMove()
+	if !ok {
 		const errMsg = "Not allowed: Nothing to revert to"
 
 		slog.Info(errMsg, utils.FuncAttrKey, utils.Caller())
@@ -368,12 +368,10 @@ func (wx *WebAppX) RevertMove(c echo.Context) error {
 		return c.Render(http.StatusOK, "index", state)
 	}
 
-	sess.Game.Switch(moves[len(moves)-1])
-	moves = moves[:len(moves)-1]
-	sess.Game.SetPreviousMoves(moves)
+	sess.Game.Switch(pos)
 
 	if debugEnabled() {
-		slog.Debug(fmt.Sprintf("Move History: %v", moves), utils.FuncAttrKey, utils.Caller())
+		slog.Debug(fmt.Sprintf("Move History: %v", sess.Game.GetPreviousMoves()), utils.FuncAttrKey, utils.Caller())
 		sess.Game.PrettyPrintGrid()
 	}
 
@@ -425,12 +423,10 @@ func (wx *WebAppX) Switch(c echo.Context) error {
 	pos := (sess.Game.Dim * row) + col
 
 	sess.Game.Switch(pos)
-	moves := sess.Game.GetPreviousMoves()
-	moves = append(moves, pos)
-	sess.Game.SetPreviousMoves(moves)
+	sess.Game.RecordMove(pos)
 
 	if debugEnabled() {
-		slog.Debug(fmt.Sprintf("Move History: %v", moves), utils.FuncAttrKey, utils.Caller())
+		slog.Debug(fmt.Sprintf("Move History: %v", sess.Game.GetPreviousMoves()), utils.FuncAttrKey, utils.Caller())
 		sess.Game.PrettyPrintGrid()
 	}
 

@@ -184,6 +184,35 @@ func (g *Grid) SetPreviousMoves(moveHistory []int) {
 	g.moveHistory = append([]int(nil), moveHistory...)
 }
 
+// RecordMove toggles pos's membership in the move history rather than always
+// appending it. Switch's own effects are self-inverse and commute (fixed
+// 1-val flips over a fixed neighborhood for this Grid's lifetime), so switching the
+// same pos twice always cancels out on the board regardless of what happened in
+// between -- this keeps the recorded history matching the set of moves that still
+// have a net effect, in the order they last took effect, instead of growing
+// unboundedly every time a player reclicks the same cell.
+func (g *Grid) RecordMove(pos int) {
+	for i, m := range g.moveHistory {
+		if m == pos {
+			g.moveHistory = append(g.moveHistory[:i], g.moveHistory[i+1:]...)
+			return
+		}
+	}
+	g.moveHistory = append(g.moveHistory, pos)
+}
+
+// PopLastMove removes and returns the most recently recorded move (the one a
+// RevertMove should undo next). ok is false if there's nothing to revert.
+func (g *Grid) PopLastMove() (pos int, ok bool) {
+	if len(g.moveHistory) == 0 {
+		return 0, false
+	}
+	last := len(g.moveHistory) - 1
+	pos = g.moveHistory[last]
+	g.moveHistory = g.moveHistory[:last]
+	return pos, true
+}
+
 func (g *Grid) CheckWin() bool {
 	sum := 0
 	for _, val := range g.grid {
