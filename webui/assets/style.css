@@ -5,11 +5,16 @@
   --bg-void: #0d0221;
   --bg-panel: rgba(24, 10, 46, 0.75);
   --grid-line: rgba(255, 45, 149, 0.12);
+  --input-bg: #0a0416;
 
   --neon-pink: #ff2ec4;
+  --neon-pink-rgb: 255, 46, 196;
   --neon-cyan: #00fff2;
+  --neon-cyan-rgb: 0, 255, 242;
   --neon-violet: #b967ff;
+  --neon-violet-rgb: 185, 103, 255;
   --neon-amber: #ffb627;
+  --neon-amber-rgb: 255, 182, 39;
 
   --text-main: #f1e9ff;
   --text-dim: #9d86c9;
@@ -78,6 +83,12 @@ h1 {
     font-size: 1.1rem;
     letter-spacing: 0.15em;
   }
+
+  /* 260px min-width overflows viewports narrower than ~292px (260px + this
+     file's 16px side padding x2); let fields shrink to fit instead. */
+  .field-template {
+    min-width: 100%;
+  }
 }
 
 .session-badge,
@@ -94,7 +105,7 @@ h1 {
   text-transform: uppercase;
   color: var(--bg-void);
   background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink));
-  box-shadow: 0 0 10px rgba(0, 255, 242, 0.6);
+  box-shadow: 0 0 10px rgba(var(--neon-cyan-rgb), 0.6);
 }
 
 /* Quieter than .session-badge -- this is incidental build info, not game state. */
@@ -116,10 +127,10 @@ h1 {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--neon-amber);
-  background: rgba(255, 182, 39, 0.1);
+  background: rgba(var(--neon-amber-rgb), 0.1);
   border: 1px solid var(--neon-amber);
   border-radius: 4px;
-  box-shadow: 0 0 10px rgba(255, 182, 39, 0.5);
+  box-shadow: 0 0 10px rgba(var(--neon-amber-rgb), 0.5);
 }
 
 .is-flex {
@@ -144,8 +155,8 @@ fieldset {
   border: 2px solid var(--neon-violet);
   border-radius: 6px;
   box-shadow:
-    0 0 8px rgba(185, 103, 255, 0.5),
-    inset 0 0 20px rgba(185, 103, 255, 0.08);
+    0 0 8px rgba(var(--neon-violet-rgb), 0.5),
+    inset 0 0 20px rgba(var(--neon-violet-rgb), 0.08);
 }
 
 legend {
@@ -156,7 +167,7 @@ legend {
   color: var(--bg-void);
   background: var(--neon-cyan);
   border-radius: 4px;
-  box-shadow: 0 0 8px rgba(0, 255, 242, 0.7);
+  box-shadow: 0 0 8px rgba(var(--neon-cyan-rgb), 0.7);
 }
 
 form {
@@ -187,7 +198,7 @@ input,
 textarea {
   padding: 6px 8px;
   color: var(--neon-cyan);
-  background: #0a0416;
+  background: var(--input-bg);
   border: 1px solid var(--neon-violet);
   border-radius: 4px;
   font-family: inherit;
@@ -202,13 +213,13 @@ textarea {
 input:focus-visible,
 textarea:focus-visible {
   border-color: var(--neon-cyan);
-  box-shadow: 0 0 8px rgba(0, 255, 242, 0.7);
+  box-shadow: 0 0 8px rgba(var(--neon-cyan-rgb), 0.7);
 }
 
 input:disabled,
 textarea:disabled {
   color: var(--neon-pink);
-  border-color: rgba(255, 46, 196, 0.4);
+  border-color: rgba(var(--neon-pink-rgb), 0.4);
   opacity: 0.9;
 }
 
@@ -242,15 +253,15 @@ button {
   background: linear-gradient(135deg, var(--neon-pink), var(--neon-violet));
   border: 2px solid var(--neon-cyan);
   border-radius: 4px;
-  box-shadow: 0 0 10px rgba(255, 46, 196, 0.6);
+  box-shadow: 0 0 10px rgba(var(--neon-pink-rgb), 0.6);
   cursor: pointer;
   transition: transform 0.1s ease, box-shadow 0.2s ease;
 }
 
 button:hover {
   box-shadow:
-    0 0 16px rgba(255, 46, 196, 0.9),
-    0 0 24px rgba(0, 255, 242, 0.6);
+    0 0 16px rgba(var(--neon-pink-rgb), 0.9),
+    0 0 24px rgba(var(--neon-cyan-rgb), 0.6);
   transform: translateY(-1px);
 }
 
@@ -288,7 +299,7 @@ button.htmx-request {
   font-weight: bold;
   line-height: 44px;
   color: var(--text-dim);
-  background: #0a0416;
+  background: var(--input-bg);
   border: 1px solid var(--neon-violet);
   cursor: pointer;
   transition: background 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
@@ -305,6 +316,13 @@ button.htmx-request {
     0 0 10px var(--neon-cyan),
     0 0 20px var(--neon-pink);
   animation: pulse 2s ease-in-out infinite;
+}
+
+/* Placed after (and more specific than) .grid-square[data-state="1"] above, so a
+   mid-flight request can actually halt the pulse animation instead of the two rules
+   tying on specificity and the pulse rule winning by source order. */
+.grid-square[data-state="1"].htmx-request {
+  animation: none;
 }
 
 @keyframes pulse {
@@ -363,5 +381,10 @@ button.htmx-request {
   .win-banner {
     color: var(--neon-cyan);
     text-shadow: 0 0 8px var(--neon-cyan), 0 0 20px var(--neon-pink);
+  }
+
+  button,
+  .grid-square {
+    transition: none;
   }
 }

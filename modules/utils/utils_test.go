@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -30,6 +31,7 @@ func TestParseDim(t *testing.T) {
 		{"not a number", map[string]interface{}{"dim": []string{"abc"}}, true, -1},
 		{"below range", map[string]interface{}{"dim": []string{"1"}}, true, -1},
 		{"above range", map[string]interface{}{"dim": []string{"6"}}, true, -1},
+		{"overflow (strconv.ErrRange)", map[string]interface{}{"dim": []string{"99999999999999999999"}}, true, -1},
 	}
 
 	for _, tt := range tests {
@@ -68,7 +70,7 @@ func TestParseNeighborhood(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, resp := ParseNeighborhood(tt.jsonMap, freshResp(), available)
-			if !intSliceEqual(got, tt.want) {
+			if !slices.Equal(got, tt.want) {
 				t.Errorf("ParseNeighborhood() = %v, want %v", got, tt.want)
 			}
 			isErr := resp["Status"] == "ERROR"
@@ -120,6 +122,7 @@ func TestParseRowCol(t *testing.T) {
 		{"invalid row", map[string]interface{}{"row": []string{"x"}, "col": []string{"2"}}, true, -1, -1},
 		{"invalid col", map[string]interface{}{"row": []string{"1"}, "col": []string{"x"}}, true, -1, -1},
 		{"no params at all (regression: used to panic)", map[string]interface{}{}, true, -1, -1},
+		{"row overflow (strconv.ErrRange)", map[string]interface{}{"row": []string{"99999999999999999999"}, "col": []string{"2"}}, true, -1, -1},
 	}
 
 	for _, tt := range tests {
@@ -144,7 +147,25 @@ func TestBuildNeighborhoodFromConfig(t *testing.T) {
 
 	got := BuildNeighborhoodFromConfig(config)
 	want := []int{0, 8}
-	if !intSliceEqual(got, want) {
+	if !slices.Equal(got, want) {
+		t.Errorf("BuildNeighborhoodFromConfig() = %v, want %v", got, want)
+	}
+}
+
+// TestBuildNeighborhoodFromConfigShorterToggleSequence documents BuildNeighborhoodFromConfig's
+// behavior when ToggleSequence is shorter than AvailableToggleSequence -- only reachable
+// if a caller bypasses ParseJSONConfig/validateConfig (which guarantee equal lengths for
+// any Config that passes validation). It now stops at the shorter length instead of
+// panicking with an index-out-of-range.
+func TestBuildNeighborhoodFromConfigShorterToggleSequence(t *testing.T) {
+	config := &Config{
+		ToggleSequence:          []bool{true}, // shorter than AvailableToggleSequence
+		AvailableToggleSequence: []int{0, 4, 8},
+	}
+
+	got := BuildNeighborhoodFromConfig(config)
+	want := []int{0}
+	if !slices.Equal(got, want) {
 		t.Errorf("BuildNeighborhoodFromConfig() = %v, want %v", got, want)
 	}
 }
@@ -152,6 +173,25 @@ func TestBuildNeighborhoodFromConfig(t *testing.T) {
 func TestBuildToggleSequenceFromRequest(t *testing.T) {
 	got := BuildToggleSequenceFromRequest([]int{0, 8}, []int{0, 4, 8})
 	want := []bool{true, false, true}
+
+	if len(got) != len(want) {
+		t.Fatalf("BuildToggleSequenceFromRequest() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("BuildToggleSequenceFromRequest() = %v, want %v", got, want)
+		}
+	}
+}
+
+// TestBuildToggleSequenceFromRequestSilentlyDropsUnknownValues documents
+// BuildToggleSequenceFromRequest's behavior for a neighborhood value that isn't present
+// in availableToggleSequence at all: it's simply absent from the result with no error,
+// since this function has no validation of its own (in production, ParseNeighborhood
+// already rejects such values before this is ever called).
+func TestBuildToggleSequenceFromRequestSilentlyDropsUnknownValues(t *testing.T) {
+	got := BuildToggleSequenceFromRequest([]int{0, 99}, []int{0, 4, 8})
+	want := []bool{true, false, false}
 
 	if len(got) != len(want) {
 		t.Fatalf("BuildToggleSequenceFromRequest() = %v, want %v", got, want)
@@ -314,16 +354,4 @@ func TestRealConfigJSONIsValid(t *testing.T) {
 
 func ref(c Config) *Config {
 	return &c
-}
-
-func intSliceEqual(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
