@@ -8,6 +8,18 @@ on:
 permissions:
   contents: read
 
+# actions/setup-go@v6 sets GOTOOLCHAIN=local whenever go-version is given explicitly
+# (as it is below), to stop Go's own toolchain auto-switching from silently overriding
+# the version setup-go just installed. That's exactly backwards for us: go.mod's
+# `toolchain go1.26.5` line only matters if auto-switching is allowed to act on it, and
+# setup-go's cataloged "latest 1.26.x" can otherwise lag behind (it did: it installed
+# 1.26.4, missing the crypto/tls fix in 1.26.5 that GO-2026-5856 needs -- CI failed
+# govulncheck on exactly that gap). GOTOOLCHAIN=auto here restores go.mod as the actual
+# source of truth for the exact patch version, which is also what already happens in
+# every local dev environment.
+env:
+  GOTOOLCHAIN: auto
+
 jobs:
   test:
     name: Build, vet, format, test
