@@ -6,6 +6,7 @@ package session
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"sync"
 	"time"
 
@@ -33,13 +34,15 @@ type Session struct {
 	sync.Mutex
 }
 
-// NewID returns a random, URL/cookie-safe session identifier.
-func NewID() string {
+// NewID returns a random, URL/cookie-safe session identifier. Callers must handle a
+// non-nil error explicitly (e.g. render an error response) rather than relying on a
+// panic + recover-middleware safety net.
+func NewID() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		panic(err)
+		return "", fmt.Errorf("session: failed to generate a random id: %w", err)
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }
 
 // Manager tracks live sessions and enforces MaxSessions/TTL/idle-timeout, purging
@@ -47,6 +50,14 @@ func NewID() string {
 type Manager struct {
 	mu       sync.Mutex
 	sessions map[string]*Session
+
+	// expiredIDs remembers ids whose real session was evicted (see evictLocked),
+	// distinct from ids that merely failed to get a session at all while waiting for a
+	// slot -- so Claim can tell a genuinely re-expired client from a brand-new one that
+	// was just waiting (see Claim's expired return value). Pruned lazily in Claim once
+	// an entry is older than 2x ttl, bounding this to roughly "recently expired
+	// sessions" rather than growing for the server's whole lifetime.
+	expiredIDs map[string]time.Time
 
 	maxSessions int
 	ttl         time.Duration
@@ -61,6 +72,7 @@ type Manager struct {
 func NewManager(config *utils.Config) *Manager {
 	return &Manager{
 		sessions:              make(map[string]*Session),
+		expiredIDs:            make(map[string]time.Time),
 		maxSessions:           config.MaxSessions,
 		ttl:                   time.Duration(config.SessionTTLSeconds) * time.Second,
 		idleTimeout:           time.Duration(config.SessionIdleTimeoutSeconds) * time.Second,
@@ -71,21 +83,25 @@ func NewManager(config *utils.Config) *Manager {
 	}
 }
 
-// Claim returns the existing session for id, bumping its LastUpdatedAt, and reports
-// existed=true. If no session exists for id, it tries to create one (existed=false),
-// opportunistically evicting TTL-expired then idle-timed-out sessions if the manager
-// is at capacity. Returns ok=false only when still at capacity after eviction
-// attempts -- the caller must have the client wait.
-func (m *Manager) Claim(id string) (sess *Session, ok bool, existed bool) {
+// Claim returns the existing session for id, bumping its LastUpdatedAt (expired=false:
+// an active touch is never an expiry). If no session exists for id, it tries to create
+// one, opportunistically evicting TTL-expired then idle-timed-out sessions if the
+// manager is at capacity. Returns ok=false only when still at capacity after eviction
+// attempts -- the caller must have the client wait. expired reports whether id
+// previously had a real session that was since evicted (as opposed to id being brand
+// new, or having only ever failed to get a session while waiting for a slot) -- the
+// caller can use this to tell a genuinely re-expired client from a first-timer.
+func (m *Manager) Claim(id string) (sess *Session, ok bool, expired bool) {
 	m.mu.Lock()
 
 	if s, found := m.sessions[id]; found {
 		s.LastUpdatedAt = time.Now()
 		m.mu.Unlock()
-		return s, true, true
+		return s, true, false
 	}
 
 	now := time.Now()
+	m.pruneExpiredIDsLocked(now)
 
 	if len(m.sessions) >= m.maxSessions {
 		m.evictExpiredLocked(now)
@@ -97,6 +113,9 @@ func (m *Manager) Claim(id string) (sess *Session, ok bool, existed bool) {
 		m.mu.Unlock()
 		return nil, false, false
 	}
+
+	_, wasExpired := m.expiredIDs[id]
+	delete(m.expiredIDs, id)
 
 	s, neighborhood := m.reserveSessionLocked(id, now)
 	m.mu.Unlock()
@@ -110,7 +129,7 @@ func (m *Manager) Claim(id string) (sess *Session, ok bool, existed bool) {
 	s.Game = grid.NewGrid(s.Dim, neighborhood)
 	s.Unlock()
 
-	return s, true, false
+	return s, true, wasExpired
 }
 
 // Count returns the number of currently live sessions.
@@ -182,5 +201,17 @@ func (m *Manager) evictLocked(id string, sess *Session) {
 		return
 	}
 	delete(m.sessions, id)
+	m.expiredIDs[id] = time.Now()
 	sess.Unlock()
+}
+
+// pruneExpiredIDsLocked drops expiredIDs entries old enough that "recently expired" no
+// longer meaningfully applies, so the map can't grow for the server's entire lifetime.
+func (m *Manager) pruneExpiredIDsLocked(now time.Time) {
+	cutoff := 2 * m.ttl
+	for id, evictedAt := range m.expiredIDs {
+		if now.Sub(evictedAt) >= cutoff {
+			delete(m.expiredIDs, id)
+		}
+	}
 }

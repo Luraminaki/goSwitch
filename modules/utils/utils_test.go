@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -191,6 +192,7 @@ func TestProcessRequestFormAndQuery(t *testing.T) {
 func TestValidateConfig(t *testing.T) {
 	base := func() Config {
 		return Config{
+			Port:                            "10000",
 			Dim:                             3,
 			ToggleSequence:                  []bool{true, true, false},
 			AvailableToggleSequence:         []int{0, 4, 8},
@@ -212,10 +214,20 @@ func TestValidateConfig(t *testing.T) {
 		t.Fatalf("validateConfig() on a valid config returned an error: %v", err)
 	}
 
+	zeroPort := base()
+	zeroPort.Port = "0" // net.Listen's "pick any free port" convention -- must stay valid
+	if err := validateConfig(&zeroPort); err != nil {
+		t.Fatalf("validateConfig() rejected Port=\"0\", want it accepted: %v", err)
+	}
+
 	tests := []struct {
 		name   string
 		modify func(*Config)
 	}{
+		{"empty port", func(c *Config) { c.Port = "" }},
+		{"non-numeric port", func(c *Config) { c.Port = "abc" }},
+		{"negative port", func(c *Config) { c.Port = "-1" }},
+		{"port out of range", func(c *Config) { c.Port = "99999" }},
 		{"dim too small", func(c *Config) { c.Dim = 1 }},
 		{"dim too large", func(c *Config) { c.Dim = 6 }},
 		{"mismatched toggle sequence length", func(c *Config) { c.ToggleSequence = []bool{true} }},
@@ -226,6 +238,7 @@ func TestValidateConfig(t *testing.T) {
 		{"zero wait check interval", func(c *Config) { c.SessionWaitCheckIntervalSeconds = 0 }},
 		{"zero max waiting connections", func(c *Config) { c.MaxWaitingConnections = 0 }},
 		{"unsupported available toggle sequence value", func(c *Config) { c.AvailableToggleSequence = []int{0, 4, 99} }},
+		{"duplicate available toggle sequence value", func(c *Config) { c.AvailableToggleSequence = []int{0, 0, 4} }},
 		{"empty log file path", func(c *Config) { c.LogFilePath = "" }},
 		{"zero log max size", func(c *Config) { c.LogMaxSizeMB = 0 }},
 		{"zero log max backups", func(c *Config) { c.LogMaxBackups = 0 }},
@@ -276,6 +289,26 @@ func TestParseJSONConfigValidFile(t *testing.T) {
 
 	if config.Port != "10000" || config.Dim != 3 || config.MaxSessions != 10 {
 		t.Errorf("ParseJSONConfig() = %+v, unexpected values", config)
+	}
+}
+
+// TestRealConfigJSONIsValid guards against the repo's own committed config.json
+// silently drifting out of what validateConfig accepts -- nothing else (build, the
+// rest of the test suite) ever loads this specific file, since every other test uses
+// its own ephemeral temp config.
+func TestRealConfigJSONIsValid(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "config.json"))
+	if err != nil {
+		t.Fatalf("failed to read repo-root config.json: %v", err)
+	}
+
+	var config Config
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("repo-root config.json failed to parse: %v", err)
+	}
+
+	if err := validateConfig(&config); err != nil {
+		t.Fatalf("repo-root config.json is no longer valid: %v", err)
 	}
 }
 

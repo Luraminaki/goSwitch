@@ -21,9 +21,12 @@ linters:
     rules:
       # This project deliberately writes no comments unless the WHY is
       # non-obvious (see CLAUDE guidance) -- revive's doc-comment rules fight
-      # that style. Its other checks (var-naming, etc.) still apply.
+      # that style. Its other checks (var-naming, etc.) still apply. Anchored to the
+      # "rule-name: message" prefix golangci-lint reports (not a bare substring match):
+      # "exported" alone would also swallow the unrelated unexported-return and
+      # unexported-naming rules, since "exported" is a substring of "unexported".
       - linters: [revive]
-        text: "exported|package-comments"
+        text: "^(exported|package-comments):"
       # log.Fatal terminates the process immediately, so the deferred Close()
       # right before it not running is moot -- the OS reclaims the handle anyway.
       - linters: [gocritic]

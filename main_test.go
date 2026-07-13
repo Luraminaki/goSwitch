@@ -192,6 +192,60 @@ func TestFullGamePlayFlow(t *testing.T) {
 	}
 }
 
+// TestSessionCookieAttributes is a regression test for the class of bug that already
+// broke CI once (commit 9410c03): a hardcoded Secure: true silently dropped the cookie
+// under the Go version CI happened to use, and the only symptom was a confusing
+// cascade of unrelated test failures (session isolation, game-flow) rather than a
+// single assertion pointing at the actual cause. Asserts the real Set-Cookie header
+// directly, bypassing the cookiejar, so a future regression here fails obviously.
+func TestSessionCookieAttributes(t *testing.T) {
+	srv := newTestServer(t, nil)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/", nil)
+	if err != nil {
+		t.Fatalf("failed to build GET / request: %v", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET / failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	cookies := resp.Cookies()
+	var sessionCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "goswitch_sid" {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatalf("GET / did not set a goswitch_sid cookie, got cookies: %v", cookies)
+	}
+
+	if !sessionCookie.HttpOnly {
+		t.Error("session cookie should be HttpOnly")
+	}
+	if sessionCookie.SameSite != http.SameSiteLaxMode {
+		t.Errorf("session cookie SameSite = %v, want Lax", sessionCookie.SameSite)
+	}
+	// The test server talks plain http with TrustProxyHeaders left at its default
+	// (false), so Secure must NOT be set -- otherwise no browser would ever send the
+	// cookie back to it, exactly the bug this test guards against.
+	if sessionCookie.Secure {
+		t.Error("session cookie should not be Secure over a plain-http, untrusted-proxy connection")
+	}
+	if sessionCookie.Value == "" {
+		t.Error("session cookie value should not be empty")
+	}
+	// MaxAge should reflect the fresh session's full TTL (1800s in newTestConfigFile),
+	// allowing a little slack for time elapsed during the request itself.
+	if sessionCookie.MaxAge <= 0 || sessionCookie.MaxAge > 1800 {
+		t.Errorf("session cookie MaxAge = %d, want in (0, 1800]", sessionCookie.MaxAge)
+	}
+}
+
 func TestPerSessionIsolation(t *testing.T) {
 	srv := newTestServer(t, nil)
 	clientA := newClient(t)
@@ -308,6 +362,11 @@ func TestCapacityAndSSEWait(t *testing.T) {
 	_, bodyB = mustGet(t, clientB, srv.URL+"/")
 	if strings.Contains(bodyB, "All Tables Are Busy") {
 		t.Fatalf("client B should have a session after the wait resolved, got: %s", bodyB)
+	}
+	// Regression: B never had a real session before -- it only ever waited -- so it
+	// must not be told its (nonexistent) previous session "expired".
+	if strings.Contains(bodyB, "SYSTEM MESSAGE") {
+		t.Fatalf("client B should not see an expiry notice: it was only ever waiting, never previously had a session, got: %s", bodyB)
 	}
 }
 

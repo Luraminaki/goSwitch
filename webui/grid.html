@@ -8,6 +8,7 @@
           <div>
               {{ range $j, $cell := $row }}
                 <button class="grid-square" data-state="{{ $cell }}"
+                        aria-label="Row {{ $i }}, column {{ $j }}, {{ if eq $cell 1 }}on{{ else }}off{{ end }}"
                         hx-post="/switch?row={{ $i }}&col={{ $j }}"
                         hx-target="#goSwitch">{{ $cell }}
                 </button>

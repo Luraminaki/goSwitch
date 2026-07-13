@@ -92,36 +92,22 @@ func (g *Grid) checkOOB(x, y int) bool {
 	return (0 <= x && x < g.Dim) && (0 <= y && y < g.Dim)
 }
 
-func (g *Grid) switchV4(x, y int) [][2]int {
-	coordsToSwitch := [][2]int{}
-	if g.checkOOB(x+1, y) {
-		coordsToSwitch = append(coordsToSwitch, [2]int{x + 1, y})
-	}
-	if g.checkOOB(x, y+1) {
-		coordsToSwitch = append(coordsToSwitch, [2]int{x, y + 1})
-	}
-	if g.checkOOB(x-1, y) {
-		coordsToSwitch = append(coordsToSwitch, [2]int{x - 1, y})
-	}
-	if g.checkOOB(x, y-1) {
-		coordsToSwitch = append(coordsToSwitch, [2]int{x, y - 1})
-	}
-	return coordsToSwitch
-}
+// orthogonalOffsets and diagonalOffsets are the (dx, dy) pairs for the "4" (plus-shaped)
+// and "8" (diagonal) neighborhood patterns, relative to the switched cell.
+var (
+	orthogonalOffsets = [][2]int{{1, 0}, {0, 1}, {-1, 0}, {0, -1}}
+	diagonalOffsets   = [][2]int{{1, 1}, {-1, -1}, {1, -1}, {-1, 1}}
+)
 
-func (g *Grid) switchV8(x, y int) [][2]int {
+// neighborsAt returns the in-bounds cells at (x,y)+offset for each offset, discarding
+// any that fall off the board.
+func (g *Grid) neighborsAt(x, y int, offsets [][2]int) [][2]int {
 	coordsToSwitch := [][2]int{}
-	if g.checkOOB(x+1, y+1) {
-		coordsToSwitch = append(coordsToSwitch, [2]int{x + 1, y + 1})
-	}
-	if g.checkOOB(x-1, y-1) {
-		coordsToSwitch = append(coordsToSwitch, [2]int{x - 1, y - 1})
-	}
-	if g.checkOOB(x+1, y-1) {
-		coordsToSwitch = append(coordsToSwitch, [2]int{x + 1, y - 1})
-	}
-	if g.checkOOB(x-1, y+1) {
-		coordsToSwitch = append(coordsToSwitch, [2]int{x - 1, y + 1})
+	for _, off := range offsets {
+		nx, ny := x+off[0], y+off[1]
+		if g.checkOOB(nx, ny) {
+			coordsToSwitch = append(coordsToSwitch, [2]int{nx, ny})
+		}
 	}
 	return coordsToSwitch
 }
@@ -139,9 +125,9 @@ func (g *Grid) Switch(pos int) {
 		case 0:
 			coordsToSwitch = append(coordsToSwitch, [2]int{x, y})
 		case 4:
-			coordsToSwitch = append(coordsToSwitch, g.switchV4(x, y)...)
+			coordsToSwitch = append(coordsToSwitch, g.neighborsAt(x, y, orthogonalOffsets)...)
 		case 8:
-			coordsToSwitch = append(coordsToSwitch, g.switchV8(x, y)...)
+			coordsToSwitch = append(coordsToSwitch, g.neighborsAt(x, y, diagonalOffsets)...)
 		}
 	}
 	for _, coord := range coordsToSwitch {
@@ -169,8 +155,11 @@ func (g *Grid) GetPreviousMoves() []int {
 	return append([]int(nil), g.moveHistory...)
 }
 
+// SetPreviousMoves stores a defensive copy of moveHistory, matching every Get*
+// accessor's own defensive copy on the way out -- so a caller mutating its slice
+// afterward can't reach back in and corrupt g.moveHistory.
 func (g *Grid) SetPreviousMoves(moveHistory []int) {
-	g.moveHistory = moveHistory
+	g.moveHistory = append([]int(nil), moveHistory...)
 }
 
 func (g *Grid) CheckWin() bool {

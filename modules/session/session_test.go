@@ -30,7 +30,10 @@ func TestNewIDIsUniqueAndWellFormed(t *testing.T) {
 	seen := make(map[string]bool)
 
 	for i := 0; i < 100; i++ {
-		id := NewID()
+		id, err := NewID()
+		if err != nil {
+			t.Fatalf("NewID() returned an error: %v", err)
+		}
 
 		if _, err := hex.DecodeString(id); err != nil {
 			t.Fatalf("NewID() = %q is not valid hex: %v", id, err)
@@ -75,17 +78,71 @@ func TestClaimCreatesThenTouchesSameSession(t *testing.T) {
 	}
 }
 
-func TestClaimReportsExisted(t *testing.T) {
+func TestClaimNeverReportsExpiredForLiveSession(t *testing.T) {
 	m := NewManager(testConfig(10))
 
-	_, ok, existed := m.Claim("a")
-	if !ok || existed {
-		t.Fatalf("first Claim(a) = ok=%v existed=%v, want ok=true existed=false", ok, existed)
+	_, ok, expired := m.Claim("a")
+	if !ok || expired {
+		t.Fatalf("first Claim(a) = ok=%v expired=%v, want ok=true expired=false", ok, expired)
 	}
 
-	_, ok, existed = m.Claim("a")
-	if !ok || !existed {
-		t.Fatalf("second Claim(a) = ok=%v existed=%v, want ok=true existed=true", ok, existed)
+	_, ok, expired = m.Claim("a")
+	if !ok || expired {
+		t.Fatalf("second Claim(a) (still alive, never evicted) = ok=%v expired=%v, want ok=true expired=false", ok, expired)
+	}
+}
+
+// TestClaimDoesNotReportExpiredForWaitingClientThatGraduates is a regression test: a
+// client that only ever failed to get a slot while waiting -- and never had a real,
+// since-evicted session -- must not be told "your session expired" once it finally
+// gets one. Only a client whose own prior session was actually evicted should see that.
+func TestClaimDoesNotReportExpiredForWaitingClientThatGraduates(t *testing.T) {
+	m := NewManager(testConfig(1))
+
+	m.Claim("a") // takes the only slot
+
+	if _, ok, expired := m.Claim("b"); ok || expired {
+		t.Fatalf("Claim(b) while full = ok=%v expired=%v, want ok=false expired=false (b has never had a session)", ok, expired)
+	}
+
+	sessA, _, _ := m.Claim("a")
+	sessA.CreatedAt = time.Now().Add(-2 * time.Hour) // make "a" TTL-expired so a slot frees up
+
+	sessB, ok, expired := m.Claim("b")
+	if !ok {
+		t.Fatal("Claim(b) should have succeeded once 'a' was evicted")
+	}
+	if expired {
+		t.Fatal("Claim(b) reported expired=true, but 'b' was only ever waiting, never previously had a real session")
+	}
+	if sessB == nil {
+		t.Fatal("Claim(b) returned a nil session despite ok=true")
+	}
+}
+
+// TestClaimReportsExpiredForActuallyEvictedSession is the mirror case: a client whose
+// own real session was evicted, then claims again, must be told so.
+func TestClaimReportsExpiredForActuallyEvictedSession(t *testing.T) {
+	m := NewManager(testConfig(1))
+
+	sessA, _, _ := m.Claim("a")
+	sessA.CreatedAt = time.Now().Add(-2 * time.Hour) // TTL-expired
+
+	// "b" takes the freed-up slot, evicting "a".
+	if _, ok, _ := m.Claim("b"); !ok {
+		t.Fatal("Claim(b) should have succeeded: 'a' is TTL-expired")
+	}
+
+	sessB, _, _ := m.Claim("b")
+	sessB.CreatedAt = time.Now().Add(-2 * time.Hour) // now make "b" TTL-expired too
+
+	// "a" comes back and reclaims a slot; it really was evicted before, so expired=true.
+	_, ok, expired := m.Claim("a")
+	if !ok {
+		t.Fatal("Claim(a) should have succeeded: 'b' is now TTL-expired")
+	}
+	if !expired {
+		t.Fatal("Claim(a) reported expired=false, but 'a' really did have a prior session evicted")
 	}
 }
 

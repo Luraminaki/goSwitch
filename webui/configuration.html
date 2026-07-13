@@ -3,26 +3,27 @@
   <legend>Grid Configuration</legend>
 
   <form>
-    <label for="size" class="configuration-is-flex">Grid Size: 
+    <label for="config-size" class="configuration-is-flex">Grid Size:
       <input type="number" name="dim" id="config-size" value="{{ .Config.Dim }}"/>
     </label>
 
     <br/>
 
-    <label for="neighbors" class="configuration-is-flex">Pattern:
-      <div>
+    <div class="configuration-is-flex">
+      <span id="config-neighborhood-label">Pattern:</span>
+      <div role="group" aria-labelledby="config-neighborhood-label">
         {{ $temp := .Config.ToggleSequence }}
 
         {{ range $idx, $val := .Config.AvailableToggleSequence }}
-          {{ $val }}<input type="checkbox" name="neighborhood" value="{{ $val }}"
+          <label for="config-neighborhood-{{ $val }}">{{ $val }}</label><input type="checkbox" name="neighborhood" value="{{ $val }}" id="config-neighborhood-{{ $val }}"
           {{ if index $temp $idx }} checked {{ end }}/>
         {{ end }}
       </div>
-    </label>
+    </div>
 
     <br/>
 
-    <label for="size" class="configuration-is-flex">Enable Cheat: 
+    <label for="config-cheat" class="configuration-is-flex">Enable Cheat:
       <input type="checkbox" name="cheat" id="config-cheat" value="1"
       {{ if .Config.Cheat }} checked {{ end }}/>
     </label>

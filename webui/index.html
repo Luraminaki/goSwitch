@@ -22,7 +22,7 @@
     <script defer src="./assets/sse.min.js"></script>
   </head>
 
-  <body id="goSwitch" {{ if .Waiting }}hx-ext="sse" sse-connect="/wait" sse-swap="ready" sse-close="ready"{{ end }}>
+  <body id="goSwitch" aria-live="polite" aria-atomic="true" {{ if .Waiting }}hx-ext="sse" sse-connect="/wait" sse-swap="ready" sse-close="ready"{{ end }}>
     {{ if .Waiting }}
       {{ template "waiting" . }}
     {{ else }}
