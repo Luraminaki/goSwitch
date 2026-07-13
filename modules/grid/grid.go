@@ -177,13 +177,6 @@ func (g *Grid) GetPreviousMoves() []int {
 	return append([]int(nil), g.moveHistory...)
 }
 
-// SetPreviousMoves stores a defensive copy of moveHistory, matching every Get*
-// accessor's own defensive copy on the way out -- so a caller mutating its slice
-// afterward can't reach back in and corrupt g.moveHistory.
-func (g *Grid) SetPreviousMoves(moveHistory []int) {
-	g.moveHistory = append([]int(nil), moveHistory...)
-}
-
 // RecordMove toggles pos's membership in the move history rather than always
 // appending it. Switch's own effects are self-inverse and commute (fixed
 // 1-val flips over a fixed neighborhood for this Grid's lifetime), so switching the

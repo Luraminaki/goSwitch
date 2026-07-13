@@ -191,14 +191,19 @@ func TestGetPossibleSolutionReturnsDefensiveCopy(t *testing.T) {
 	}
 }
 
-func TestPreviousMovesRoundTrip(t *testing.T) {
+// TestGetPreviousMovesReturnsDefensiveCopy is a regression test: GetPreviousMoves
+// must copy g.moveHistory on the way out, matching every other Get* accessor, so a
+// caller mutating its result can't reach back in and corrupt internal state.
+func TestGetPreviousMovesReturnsDefensiveCopy(t *testing.T) {
 	g := &Grid{}
 
 	if moves := g.GetPreviousMoves(); moves != nil {
 		t.Fatalf("GetPreviousMoves() on a fresh Grid = %v, want nil", moves)
 	}
 
-	g.SetPreviousMoves([]int{1, 2, 3})
+	g.RecordMove(1)
+	g.RecordMove(2)
+	g.RecordMove(3)
 
 	moves := g.GetPreviousMoves()
 	if len(moves) != 3 || moves[0] != 1 || moves[1] != 2 || moves[2] != 3 {
@@ -208,21 +213,6 @@ func TestPreviousMovesRoundTrip(t *testing.T) {
 	moves[0] = 99
 	if g.moveHistory[0] != 1 {
 		t.Fatalf("mutating GetPreviousMoves()'s result affected internal state: %v", g.moveHistory)
-	}
-}
-
-// TestSetPreviousMovesDefensiveCopy is a regression test: SetPreviousMoves must copy
-// its argument, matching every Get* accessor's own defensive copy, so a caller
-// mutating the slice it passed in afterward can't reach back in and corrupt state.
-func TestSetPreviousMovesDefensiveCopy(t *testing.T) {
-	g := &Grid{}
-
-	moves := []int{1, 2, 3}
-	g.SetPreviousMoves(moves)
-
-	moves[0] = 99
-	if g.moveHistory[0] != 1 {
-		t.Fatalf("mutating the slice passed to SetPreviousMoves() affected internal state: %v", g.moveHistory)
 	}
 }
 
