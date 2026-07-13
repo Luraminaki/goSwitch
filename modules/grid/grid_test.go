@@ -226,6 +226,68 @@ func TestSetPreviousMovesDefensiveCopy(t *testing.T) {
 	}
 }
 
+// TestRecordMoveTogglesMembership is a regression test for the toggle semantics
+// RecordMove exists for: switching the same pos twice cancels out on the board (see
+// Switch's doc comment), so the recorded history should reflect that -- a repeat
+// entry removes the existing one instead of appending a duplicate -- while leaving
+// the relative order of any other still-recorded moves untouched.
+func TestRecordMoveTogglesMembership(t *testing.T) {
+	g := &Grid{}
+
+	g.RecordMove(0)
+	if moves := g.GetPreviousMoves(); len(moves) != 1 || moves[0] != 0 {
+		t.Fatalf("after RecordMove(0), moves = %v, want [0]", moves)
+	}
+
+	g.RecordMove(4)
+	if moves := g.GetPreviousMoves(); len(moves) != 2 || moves[0] != 0 || moves[1] != 4 {
+		t.Fatalf("after RecordMove(0), RecordMove(4), moves = %v, want [0 4]", moves)
+	}
+
+	// Reclicking 0 (not the most recent entry) should cancel it out, leaving 4 as
+	// the sole (and now most recent) still-effective move.
+	g.RecordMove(0)
+	if moves := g.GetPreviousMoves(); len(moves) != 1 || moves[0] != 4 {
+		t.Fatalf("after re-recording 0, moves = %v, want [4]", moves)
+	}
+
+	// Re-clicking 4 a third time overall (present once) should remove it entirely.
+	g.RecordMove(4)
+	if moves := g.GetPreviousMoves(); moves != nil {
+		t.Fatalf("after canceling out the only remaining move, moves = %v, want nil", moves)
+	}
+}
+
+// TestPopLastMove is a regression test for RevertMove's undo semantics: it must pop
+// the most recently recorded move and report ok=false once history is empty, rather
+// than the old bare-nil-slice check.
+func TestPopLastMove(t *testing.T) {
+	g := &Grid{}
+
+	if _, ok := g.PopLastMove(); ok {
+		t.Fatal("PopLastMove() on a fresh Grid should report ok=false")
+	}
+
+	g.RecordMove(1)
+	g.RecordMove(2)
+
+	pos, ok := g.PopLastMove()
+	if !ok || pos != 2 {
+		t.Fatalf("PopLastMove() = (%d, %v), want (2, true)", pos, ok)
+	}
+	if moves := g.GetPreviousMoves(); len(moves) != 1 || moves[0] != 1 {
+		t.Fatalf("after popping 2, moves = %v, want [1]", moves)
+	}
+
+	pos, ok = g.PopLastMove()
+	if !ok || pos != 1 {
+		t.Fatalf("PopLastMove() = (%d, %v), want (1, true)", pos, ok)
+	}
+	if _, ok := g.PopLastMove(); ok {
+		t.Fatal("PopLastMove() on an emptied history should report ok=false")
+	}
+}
+
 func TestCheckWin(t *testing.T) {
 	tests := []struct {
 		name string
