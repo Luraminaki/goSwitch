@@ -8,10 +8,12 @@
     "SessionTTLSeconds": 1800,
     "SessionIdleTimeoutSeconds": 300,
     "SessionWaitCheckIntervalSeconds": 2,
+    "MaxWaitingConnections": 50,
     "LogFilePath": "./logs/goswitch.log",
     "LogMaxSizeMB": 5,
     "LogMaxBackups": 5,
     "LogLevel": "DEBUG",
     "RateLimitRequestsPerSecond": 5,
-    "RateLimitBurst": 10
+    "RateLimitBurst": 10,
+    "TrustProxyHeaders": false
 }

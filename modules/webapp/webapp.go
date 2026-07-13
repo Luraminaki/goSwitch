@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"net/http"
@@ -37,6 +38,12 @@ type WebAppX struct {
 	// that need the log file removable afterward -- e.g. tests cleaning up a temp
 	// directory -- should Close() it once done.
 	LogCloser io.Closer
+
+	// waitingConns counts clients currently parked in Wait(), independent of and
+	// uncapped by MaxSessions -- without this, a client that never gets (or doesn't
+	// even have) a real session could still hold an unbounded number of open SSE
+	// connections/goroutines.
+	waitingConns atomic.Int32
 }
 
 // configView adapts a session's live game settings plus the app-wide list of
@@ -55,6 +62,16 @@ func NewWebApp(configPath string) *WebAppX {
 	logCloser := utils.SetupLogging(&config)
 
 	server := echo.New()
+	// Echo's default RealIP() trusts X-Forwarded-For unconditionally, which lets any
+	// direct client spoof its way around the per-IP rate limiter below. Only trust it
+	// when explicitly told we're behind a real reverse proxy (Config.TrustProxyHeaders);
+	// ExtractIPFromXFFHeader's defaults (trust loopback/link-local/private-net) are
+	// exactly right for a PaaS edge proxy on a private network, e.g. Render's.
+	if config.TrustProxyHeaders {
+		server.IPExtractor = echo.ExtractIPFromXFFHeader()
+	} else {
+		server.IPExtractor = echo.ExtractIPDirect()
+	}
 	server.Use(middleware.Recover())
 	server.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStoreWithConfig(
 		middleware.RateLimiterMemoryStoreConfig{
@@ -100,22 +117,34 @@ func (wx *WebAppX) resolveSession(c echo.Context) (sess *session.Session, ok boo
 	sess, ok, existed := wx.Sessions.Claim(id)
 	expired = hadCookie && ok && !existed
 
+	// MaxAge reflects the session's actual remaining server-side TTL (from creation),
+	// not a fixed value re-rolled on every request -- otherwise the cookie's client-
+	// visible lifetime keeps looking freshly-reset forever, even as the session
+	// approaches its real, unmoving eviction deadline. Falls back to the full TTL when
+	// there's no session yet (the waiting-room case), matching the config's own default.
+	maxAge := wx.Config.SessionTTLSeconds
+	if ok {
+		maxAge = int(wx.Sessions.SessionMaxAge(sess).Seconds())
+	}
+
 	cookie := &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    id,
 		Path:     "/",
-		MaxAge:   wx.Config.SessionTTLSeconds,
+		MaxAge:   maxAge,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	}
-	// Set on its own line, conditioned on the actual request scheme, rather than an
-	// unconditional Secure: true -- the httptest-driven integration tests talk plain
-	// http to a loopback server, and relying on stdlib cookiejar's "treat loopback as
-	// secure" exception (net/http/cookiejar) is version-dependent: it's present in
-	// newer Go toolchains but not the one this repo's go.mod/CI currently targets.
-	// c.Scheme() honors X-Forwarded-Proto, so this is still "https" in production
-	// behind a TLS-terminating proxy.
-	if c.Scheme() == "https" {
+	// c.Scheme() trusts the X-Forwarded-Proto header, which is only safe to rely on
+	// behind a real reverse proxy (Config.TrustProxyHeaders) -- otherwise a direct
+	// client could set that header itself and force Secure false on a real TLS
+	// connection. Without a trusted proxy, fall back to checking whether TLS is
+	// actually terminated in this process, which can't be spoofed by a header.
+	secure := c.Request().TLS != nil
+	if wx.Config.TrustProxyHeaders {
+		secure = c.Scheme() == "https"
+	}
+	if secure {
 		cookie.Secure = true
 	}
 	c.SetCookie(cookie)
@@ -181,7 +210,10 @@ func (wx *WebAppX) InitHTMX(c echo.Context) error {
 		return c.Render(http.StatusOK, "index", wx.waitState())
 	}
 
-	slog.Info(fmt.Sprintf("Serving session %s", sess.ID), utils.FuncAttrKey, utils.Caller())
+	// Debug, not Info: the session ID is the only value gating access to that session's
+	// game state, so it shouldn't land in logs at a level that's likely to be enabled
+	// (and read/retained) in a production deployment.
+	slog.Debug(fmt.Sprintf("Serving session %s", sess.ID), utils.FuncAttrKey, utils.Caller())
 
 	sess.Lock()
 	state := wx.gameState(sess, expired)
@@ -206,7 +238,7 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 		return wx.renderSession(c, sess, expired, resp)
 	}
 
-	neighborhood, resp := utils.ParseNeighborhood(jsonMap, resp)
+	neighborhood, resp := utils.ParseNeighborhood(jsonMap, resp, wx.Config.AvailableToggleSequence)
 	if resp["Status"] == "ERROR" {
 		return wx.renderSession(c, sess, expired, resp)
 	}
@@ -286,6 +318,18 @@ func (wx *WebAppX) Switch(c echo.Context) error {
 	sess.Lock()
 	defer sess.Unlock()
 
+	// Bounds-checked here (rather than in ParseRowCol) since the valid range depends
+	// on this session's current board size, which isn't known/lockable until now.
+	if row < 0 || row >= sess.Game.Dim || col < 0 || col >= sess.Game.Dim {
+		const errMsg = "Params error: row/col out of bounds for the current board"
+		resp["Status"] = "ERROR"
+		resp["Error"] = errMsg
+
+		slog.Warn(errMsg, utils.FuncAttrKey, utils.Caller())
+
+		return c.Render(http.StatusOK, "index", utils.UpdateStateResponse(wx.gameState(sess, expired), resp))
+	}
+
 	pos := (sess.Game.Dim * row) + col
 
 	sess.Game.Switch(pos)
@@ -308,6 +352,13 @@ func (wx *WebAppX) Wait(c echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 	id := cookie.Value
+
+	if wx.waitingConns.Add(1) > int32(wx.Config.MaxWaitingConnections) { //nolint:gosec // MaxWaitingConnections is validated >= 1 at startup, never near int32's range
+		wx.waitingConns.Add(-1)
+		slog.Warn("Wait -- rejected: too many concurrent waiting connections", utils.FuncAttrKey, utils.Caller())
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+	defer wx.waitingConns.Add(-1)
 
 	resp := c.Response()
 	resp.Header().Set(echo.HeaderContentType, "text/event-stream")

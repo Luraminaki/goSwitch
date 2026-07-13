@@ -75,6 +75,14 @@ Everything is driven by [config.json](config.json), read once at startup:
 | `LogLevel`                          | Minimum level logged: `DEBUG`, `INFO`, `WARN`, or `ERROR`                                   |
 | `RateLimitRequestsPerSecond`        | Sustained requests/second allowed per client IP                                            |
 | `RateLimitBurst`                    | Max requests a single client IP can burst above the sustained rate                          |
+| `TrustProxyHeaders`                 | Whether to trust `X-Forwarded-For`/`X-Forwarded-Proto` (see below)                          |
+
+`TrustProxyHeaders` should stay `false` for a bare `go run .`/direct-exposed deployment (the
+default) -- otherwise a direct client could spoof those headers to dodge the per-IP rate limit
+or force the session cookie's `Secure` flag off over an actual TLS connection. Deployments that
+really do sit behind a reverse proxy that sets those headers (e.g. Render's edge) should set it
+to `true` via the `GOSWITCH_TRUST_PROXY_HEADERS` environment variable rather than editing the
+committed `config.json`, so the same file works correctly for both local dev and production.
 
 ## SESSIONS
 

@@ -15,9 +15,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # go-version (a minor-only constraint), not go-version-file: go.mod's own `go`
+      # line is a fully-qualified patch version (e.g. 1.26.0) -- Go 1.21+'s tooling
+      # rewrites it to that 3-part form on every `go mod tidy` regardless of what's
+      # committed, and go-version-file would then pin CI to that exact patch forever
+      # instead of floating to the latest 1.26.x. This is the same class of drift that
+      # already caused a real CI-vs-local Go-version bug in this repo (see CHANGELOG).
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: "1.26"
 
       - name: Check gofmt
         run: |
@@ -37,15 +43,24 @@ jobs:
       - name: Test
         run: go test ./... -timeout 120s
 
+      - name: Vulnerability check
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
+      # go-version (a minor-only constraint), not go-version-file: go.mod's own `go`
+      # line is a fully-qualified patch version (e.g. 1.26.0) -- Go 1.21+'s tooling
+      # rewrites it to that 3-part form on every `go mod tidy` regardless of what's
+      # committed, and go-version-file would then pin CI to that exact patch forever
+      # instead of floating to the latest 1.26.x. This is the same class of drift that
+      # already caused a real CI-vs-local Go-version bug in this repo (see CHANGELOG).
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: "1.26"
 
       # Pinned rather than "latest": golangci-lint v2 is a breaking config-format change
       # from v1 (see .golangci.yml's `version: "2"`), so an unpinned jump to a future v3

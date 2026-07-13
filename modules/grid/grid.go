@@ -44,11 +44,14 @@ func NewGrid(dim int, neighborhood []int) *Grid {
 	}
 
 	if g.CheckWin() {
-		// Structurally degenerate configuration: force a single flip so the
-		// board isn't handed to the player already solved.
+		// Structurally degenerate configuration (see maxInitAttempts doc comment):
+		// every reachable Switch() result is itself a win, so there is no sequence of
+		// real moves that both starts from a won board and ends unsolved. Force a
+		// single raw flip instead -- this deliberately bypasses Switch's neighborhood
+		// fanout, so g.solution can't describe it as a move sequence; clear it rather
+		// than report a "solution" that doesn't actually solve this board.
 		g.grid[0] = 1 - g.grid[0]
-		g.solution = append(g.solution, 0)
-		sort.Ints(g.solution)
+		g.solution = nil
 	}
 
 	return g
