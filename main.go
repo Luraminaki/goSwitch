@@ -53,26 +53,48 @@ func main() {
 	wx.Server.GET("/wait", wx.Wait)
 	wx.Server.GET("/", wx.InitHTMX)
 
+	// Buffered so the goroutine can always send, whether main() is still waiting on it
+	// (a Start failure) or has already moved on to a normal signal-triggered shutdown.
+	serveErr := make(chan error, 1)
 	go func() {
-		if err := wx.Server.Start(":" + wx.Config.Port); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			wx.Server.Logger.Fatal(err)
+		err := wx.Server.Start(":" + wx.Config.Port)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- err
+			return
 		}
+		serveErr <- nil
 	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	<-ctx.Done()
 
-	slog.Info("Shutting down...", utils.FuncAttrKey, utils.Caller())
+	// Routed through slog (not wx.Server.Logger.Fatal/Error) so both a Start failure
+	// and a Shutdown error land in the same rotating log file operators actually watch,
+	// instead of only on stdout -- and, critically, so a Start failure still reaches the
+	// cleanup below rather than Logger.Fatal's immediate os.Exit skipping it entirely.
+	startFailed := false
+	select {
+	case <-ctx.Done():
+		slog.Info("Shutting down...", utils.FuncAttrKey, utils.Caller())
+	case err := <-serveErr:
+		startFailed = err != nil
+		if startFailed {
+			slog.Error(fmt.Sprintf("server failed to start: %v", err), utils.FuncAttrKey, utils.Caller())
+		}
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
 	if err := wx.Server.Shutdown(shutdownCtx); err != nil {
-		wx.Server.Logger.Error(err)
+		slog.Error(fmt.Sprintf("error during shutdown: %v", err), utils.FuncAttrKey, utils.Caller())
 	}
 
 	if err := wx.LogCloser.Close(); err != nil {
 		slog.Error(fmt.Sprintf("failed to close log file: %v", err), utils.FuncAttrKey, utils.Caller())
+	}
+
+	if startFailed {
+		os.Exit(1)
 	}
 }

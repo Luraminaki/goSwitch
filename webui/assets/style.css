@@ -194,9 +194,13 @@ textarea {
   font-size: 0.9rem;
 }
 
-input:focus,
-textarea:focus {
-  outline: none;
+/* :focus-visible (not :focus), and no outline: none -- this is an addition on top of
+   the browser's own focus ring for keyboard users, not a replacement for it. Applies to
+   checkboxes too (input:focus-visible matches every input type), giving them a visible
+   focus indicator that native checkbox chrome otherwise often doesn't render from
+   border/box-shadow alone. */
+input:focus-visible,
+textarea:focus-visible {
   border-color: var(--neon-cyan);
   box-shadow: 0 0 8px rgba(0, 255, 242, 0.7);
 }
@@ -227,6 +231,10 @@ input[type="checkbox"] {
 button {
   padding: 10px 18px;
   color: #fff;
+  /* White-on-gradient measures ~3.26:1 -- below WCAG AA's 4.5:1 for normal text, but
+     this font-size (>=18.66px) + bold weight qualifies as "large text", whose AA
+     minimum is 3:1, which this clears. */
+  font-size: 1.2rem;
   letter-spacing: 0.15em;
   text-transform: uppercase;
   font-family: inherit;

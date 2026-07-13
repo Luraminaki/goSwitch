@@ -105,6 +105,15 @@ func ParseJSONConfig(path string) Config {
 }
 
 func validateConfig(config *Config) error {
+	if config.Port == "" {
+		return fmt.Errorf("'Port' must not be empty")
+	}
+	// 0 is included as valid: it's the standard net.Listen convention for "let the OS
+	// pick an ephemeral port", used by this project's own test suite.
+	if port, err := strconv.Atoi(config.Port); err != nil || port < 0 || port > 65535 {
+		return fmt.Errorf("'Port' must be a number in [0, 65535], got %q", config.Port)
+	}
+
 	if config.Dim < 2 || config.Dim > 5 {
 		return fmt.Errorf("'Dim' must be in [2, 5], got %d", config.Dim)
 	}
@@ -114,11 +123,16 @@ func validateConfig(config *Config) error {
 			len(config.ToggleSequence), len(config.AvailableToggleSequence))
 	}
 
+	seenPatterns := make(map[int]bool, len(config.AvailableToggleSequence))
 	for _, val := range config.AvailableToggleSequence {
 		if !slices.Contains(supportedNeighborhoodPatterns, val) {
 			return fmt.Errorf("'AvailableToggleSequence' value %d is not a supported pattern (must be one of %v)",
 				val, supportedNeighborhoodPatterns)
 		}
+		if seenPatterns[val] {
+			return fmt.Errorf("'AvailableToggleSequence' value %d is duplicated", val)
+		}
+		seenPatterns[val] = true
 	}
 
 	if config.MaxSessions < 1 {
@@ -359,9 +373,4 @@ func ParseRowCol(jsonMap map[string]interface{}, resp map[string]interface{}) (i
 	}
 
 	return row, col, resp
-}
-
-func UpdateStateResponse(state map[string]interface{}, resp map[string]interface{}) map[string]interface{} {
-	state["Response"] = resp
-	return state
 }

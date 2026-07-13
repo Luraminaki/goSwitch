@@ -4,6 +4,7 @@ package webapp
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -24,6 +25,15 @@ import (
 )
 
 const sessionCookieName = "goswitch_sid"
+
+// debugEnabled reports whether Debug-level logging is actually enabled, so callers can
+// skip building an expensive message (a Sprintf over a whole map/slice, or a full O(N^2)
+// PrettyPrintGrid string) when it would just be discarded. Deliberately doesn't call
+// utils.Caller() itself -- that must stay called directly at each real log call site,
+// or its hardcoded stack-frame skip count would silently point at the wrong frame.
+func debugEnabled() bool {
+	return slog.Default().Enabled(context.Background(), slog.LevelDebug)
+}
 
 // STRUCTS
 
@@ -55,6 +65,45 @@ type configView struct {
 	AvailableToggleSequence []int
 }
 
+// pageResponse is the outcome of the request that produced a pageState -- whether it
+// succeeded, and the validation error if not.
+type pageResponse struct {
+	Status string
+	Error  string
+}
+
+// pageState is everything webui/*.html's templates read from the render data. A typed
+// struct (rather than a map[string]interface{}) means a typo'd or renamed field fails
+// at compile time instead of silently rendering as the zero value. Not every field is
+// meaningful in every state -- e.g. Config/Board/Solution/Moves/Win are zero-valued
+// while Waiting is true; the templates themselves gate on .Waiting/.Expired to know
+// which fields apply.
+type pageState struct {
+	SessionCount int
+	MaxSessions  int
+	Version      string
+
+	Config   configView
+	Board    [][]int
+	Solution []int
+	Moves    []int
+	Win      bool
+
+	Waiting  bool
+	Expired  bool
+	Response pageResponse
+}
+
+// responseFromMap converts a utils.Parse*-style {"Status":..., "Error":...} map (the
+// shape those functions' existing signatures require) into a typed pageResponse. The
+// type assertions default to the zero value on a mismatch rather than panicking, but in
+// practice every Parse* call site only ever stores plain strings in these two keys.
+func responseFromMap(resp map[string]interface{}) pageResponse {
+	status, _ := resp["Status"].(string)
+	errMsg, _ := resp["Error"].(string)
+	return pageResponse{Status: status, Error: errMsg}
+}
+
 // WebApp
 
 func NewWebApp(configPath string) *WebAppX {
@@ -73,6 +122,10 @@ func NewWebApp(configPath string) *WebAppX {
 		server.IPExtractor = echo.ExtractIPDirect()
 	}
 	server.Use(middleware.Recover())
+	// The only form fields this app ever reads (dim, neighborhood, cheat, row, col) are
+	// a handful of short values -- 1M is generous headroom over that, while still
+	// bounding how much body an attacker can make the server read/parse per request.
+	server.Use(middleware.BodyLimit("1M"))
 	server.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStoreWithConfig(
 		middleware.RateLimiterMemoryStoreConfig{
 			Rate:  rate.Limit(config.RateLimitRequestsPerSecond),
@@ -99,23 +152,25 @@ func NewWebApp(configPath string) *WebAppX {
 // resolveSession maps the incoming request to its session, minting a new candidate ID
 // when the client has none. The cookie is always (re)written, even when the manager is
 // at capacity, so a waiting client's later /wait SSE connection can claim the same ID
-// once a slot frees up. expired reports whether the client presented a cookie for a
-// session that no longer exists (it was purged for TTL/idle-timeout under capacity
-// pressure) and got a brand new one instead -- worth telling them, since otherwise
-// their board just silently resets with no explanation.
-func (wx *WebAppX) resolveSession(c echo.Context) (sess *session.Session, ok bool, expired bool) {
-	hadCookie := false
+// once a slot frees up. expired reports whether this id previously had a real session
+// that was since purged for TTL/idle-timeout under capacity pressure (as opposed to id
+// being brand new, or having only ever failed to get a session while waiting for a
+// slot) -- worth telling a genuinely-expired client, since otherwise their board just
+// silently resets with no explanation. err is non-nil only if a new id could not be
+// generated at all (e.g. the OS entropy source failed).
+func (wx *WebAppX) resolveSession(c echo.Context) (sess *session.Session, ok bool, expired bool, err error) {
 	id := ""
-	if cookie, err := c.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
+	if cookie, cookieErr := c.Cookie(sessionCookieName); cookieErr == nil && cookie.Value != "" {
 		id = cookie.Value
-		hadCookie = true
 	}
 	if id == "" {
-		id = session.NewID()
+		id, err = session.NewID()
+		if err != nil {
+			return nil, false, false, err
+		}
 	}
 
-	sess, ok, existed := wx.Sessions.Claim(id)
-	expired = hadCookie && ok && !existed
+	sess, ok, expired = wx.Sessions.Claim(id)
 
 	// MaxAge reflects the session's actual remaining server-side TTL (from creation),
 	// not a fixed value re-rolled on every request -- otherwise the cookie's client-
@@ -149,62 +204,63 @@ func (wx *WebAppX) resolveSession(c echo.Context) (sess *session.Session, ok boo
 	}
 	c.SetCookie(cookie)
 
-	return sess, ok, expired
+	return sess, ok, expired, nil
 }
 
-// baseState holds the keys every rendered page needs regardless of whether a client
+// baseState holds the fields every rendered page needs regardless of whether a client
 // has a live session or is waiting for one, so gameState and waitState can't drift on
 // them independently.
-func (wx *WebAppX) baseState() map[string]interface{} {
-	return map[string]interface{}{
-		"SessionCount": wx.Sessions.Count(),
-		"MaxSessions":  wx.Config.MaxSessions,
-		"Version":      wx.Version,
+func (wx *WebAppX) baseState() pageState {
+	return pageState{
+		SessionCount: wx.Sessions.Count(),
+		MaxSessions:  wx.Config.MaxSessions,
+		Version:      wx.Version,
 	}
 }
 
-func (wx *WebAppX) gameState(sess *session.Session, expired bool) map[string]interface{} {
-	resp := map[string]interface{}{
-		"Status": "SUCCESS",
-		"Error":  "",
-	}
-
+func (wx *WebAppX) gameState(sess *session.Session, expired bool) pageState {
 	state := wx.baseState()
-	state["Config"] = configView{
+	state.Config = configView{
 		Dim:                     sess.Dim,
 		Cheat:                   sess.Cheat,
 		ToggleSequence:          sess.ToggleSequence,
 		AvailableToggleSequence: wx.Config.AvailableToggleSequence,
 	}
-	state["Board"] = sess.Game.GetGrid()
-	state["Solution"] = sess.Game.GetPossibleSolution()
-	state["Moves"] = sess.Game.GetPreviousMoves()
-	state["Win"] = sess.Game.CheckWin()
-	state["Response"] = resp
-	state["Waiting"] = false
-	state["Expired"] = expired
+	state.Board = sess.Game.GetGrid()
+	state.Solution = sess.Game.GetPossibleSolution()
+	state.Moves = sess.Game.GetPreviousMoves()
+	state.Win = sess.Game.CheckWin()
+	state.Response = pageResponse{Status: "SUCCESS", Error: ""}
+	state.Waiting = false
+	state.Expired = expired
 
 	return state
 }
 
-func (wx *WebAppX) waitState() map[string]interface{} {
+func (wx *WebAppX) waitState() pageState {
 	state := wx.baseState()
-	state["Waiting"] = true
+	state.Waiting = true
 
 	return state
 }
 
-// renderSession locks sess, snapshots its state (merged with resp), renders and unlocks.
+// renderSession locks sess, snapshots its state (with Response set from resp), renders
+// and unlocks.
 func (wx *WebAppX) renderSession(c echo.Context, sess *session.Session, expired bool, resp map[string]interface{}) error {
 	sess.Lock()
-	state := utils.UpdateStateResponse(wx.gameState(sess, expired), resp)
+	state := wx.gameState(sess, expired)
+	state.Response = responseFromMap(resp)
 	sess.Unlock()
 
 	return c.Render(http.StatusOK, "index", state)
 }
 
 func (wx *WebAppX) InitHTMX(c echo.Context) error {
-	sess, ok, expired := wx.resolveSession(c)
+	sess, ok, expired, err := wx.resolveSession(c)
+	if err != nil {
+		slog.Error(fmt.Sprintf("resolveSession failed: %v", err), utils.FuncAttrKey, utils.Caller())
+		return c.NoContent(http.StatusInternalServerError)
+	}
 	if !ok {
 		slog.Info("Client waiting for a session slot", utils.FuncAttrKey, utils.Caller())
 		return c.Render(http.StatusOK, "index", wx.waitState())
@@ -213,7 +269,9 @@ func (wx *WebAppX) InitHTMX(c echo.Context) error {
 	// Debug, not Info: the session ID is the only value gating access to that session's
 	// game state, so it shouldn't land in logs at a level that's likely to be enabled
 	// (and read/retained) in a production deployment.
-	slog.Debug(fmt.Sprintf("Serving session %s", sess.ID), utils.FuncAttrKey, utils.Caller())
+	if debugEnabled() {
+		slog.Debug(fmt.Sprintf("Serving session %s", sess.ID), utils.FuncAttrKey, utils.Caller())
+	}
 
 	sess.Lock()
 	state := wx.gameState(sess, expired)
@@ -223,7 +281,11 @@ func (wx *WebAppX) InitHTMX(c echo.Context) error {
 }
 
 func (wx *WebAppX) Reset(c echo.Context) error {
-	sess, ok, expired := wx.resolveSession(c)
+	sess, ok, expired, err := wx.resolveSession(c)
+	if err != nil {
+		slog.Error(fmt.Sprintf("resolveSession failed: %v", err), utils.FuncAttrKey, utils.Caller())
+		return c.NoContent(http.StatusInternalServerError)
+	}
 	if !ok {
 		return c.Render(http.StatusOK, "index", wx.waitState())
 	}
@@ -231,7 +293,9 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 	jsonMap := utils.ProcessRequestForm(c)
 	resp := map[string]interface{}{"Status": "SUCCESS", "Error": ""}
 
-	slog.Debug(fmt.Sprintf("Data received: %v", jsonMap), utils.FuncAttrKey, utils.Caller())
+	if debugEnabled() {
+		slog.Debug(fmt.Sprintf("Data received: %v", jsonMap), utils.FuncAttrKey, utils.Caller())
+	}
 
 	dim, resp := utils.ParseDim(jsonMap, resp)
 	if resp["Status"] == "ERROR" {
@@ -255,52 +319,67 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 	sess.Cheat = cheat
 
 	sess.Game = grid.NewGrid(dim, neighborhood)
-	slog.Debug(fmt.Sprintf("Possible solution: %v", sess.Game.GetPossibleSolution()), utils.FuncAttrKey, utils.Caller())
-	sess.Game.PrettyPrintGrid()
+	if debugEnabled() {
+		slog.Debug(fmt.Sprintf("Possible solution: %v", sess.Game.GetPossibleSolution()), utils.FuncAttrKey, utils.Caller())
+		sess.Game.PrettyPrintGrid()
+	}
 
-	state := utils.UpdateStateResponse(wx.gameState(sess, expired), resp)
+	state := wx.gameState(sess, expired)
+	state.Response = responseFromMap(resp)
 	sess.Unlock()
 
 	return c.Render(http.StatusOK, "index", state)
 }
 
 func (wx *WebAppX) RevertMove(c echo.Context) error {
-	sess, ok, expired := wx.resolveSession(c)
+	sess, ok, expired, err := wx.resolveSession(c)
+	if err != nil {
+		slog.Error(fmt.Sprintf("resolveSession failed: %v", err), utils.FuncAttrKey, utils.Caller())
+		return c.NoContent(http.StatusInternalServerError)
+	}
 	if !ok {
 		return c.Render(http.StatusOK, "index", wx.waitState())
 	}
 
-	resp := map[string]interface{}{
-		"Status": "SUCCESS",
-		"Error":  "",
-	}
-
 	sess.Lock()
-	defer sess.Unlock()
 
 	moves := sess.Game.GetPreviousMoves()
 	if moves == nil {
 		const errMsg = "Not allowed: Nothing to revert to"
-		resp["Status"] = "ERROR"
-		resp["Error"] = errMsg
 
 		slog.Info(errMsg, utils.FuncAttrKey, utils.Caller())
 
-		return c.Render(http.StatusOK, "index", utils.UpdateStateResponse(wx.gameState(sess, expired), resp))
+		state := wx.gameState(sess, expired)
+		state.Response = pageResponse{Status: "ERROR", Error: errMsg}
+		sess.Unlock()
+
+		return c.Render(http.StatusOK, "index", state)
 	}
 
 	sess.Game.Switch(moves[len(moves)-1])
 	moves = moves[:len(moves)-1]
 	sess.Game.SetPreviousMoves(moves)
 
-	slog.Debug(fmt.Sprintf("Move History: %v", moves), utils.FuncAttrKey, utils.Caller())
-	sess.Game.PrettyPrintGrid()
+	if debugEnabled() {
+		slog.Debug(fmt.Sprintf("Move History: %v", moves), utils.FuncAttrKey, utils.Caller())
+		sess.Game.PrettyPrintGrid()
+	}
 
-	return c.Render(http.StatusOK, "index", utils.UpdateStateResponse(wx.gameState(sess, expired), resp))
+	// Unlocked before Render (I/O-bound template execution + response write), rather
+	// than held across it via defer, so a concurrent request for this same session
+	// isn't serialized across I/O it doesn't need to wait on.
+	state := wx.gameState(sess, expired)
+	sess.Unlock()
+
+	return c.Render(http.StatusOK, "index", state)
 }
 
 func (wx *WebAppX) Switch(c echo.Context) error {
-	sess, ok, expired := wx.resolveSession(c)
+	sess, ok, expired, err := wx.resolveSession(c)
+	if err != nil {
+		slog.Error(fmt.Sprintf("resolveSession failed: %v", err), utils.FuncAttrKey, utils.Caller())
+		return c.NoContent(http.StatusInternalServerError)
+	}
 	if !ok {
 		return c.Render(http.StatusOK, "index", wx.waitState())
 	}
@@ -308,7 +387,9 @@ func (wx *WebAppX) Switch(c echo.Context) error {
 	jsonMap := utils.ProcessRequestQuery(c)
 	resp := map[string]interface{}{"Status": "SUCCESS", "Error": ""}
 
-	slog.Debug(fmt.Sprintf("Data received: %v", jsonMap), utils.FuncAttrKey, utils.Caller())
+	if debugEnabled() {
+		slog.Debug(fmt.Sprintf("Data received: %v", jsonMap), utils.FuncAttrKey, utils.Caller())
+	}
 
 	row, col, resp := utils.ParseRowCol(jsonMap, resp)
 	if resp["Status"] == "ERROR" {
@@ -316,7 +397,6 @@ func (wx *WebAppX) Switch(c echo.Context) error {
 	}
 
 	sess.Lock()
-	defer sess.Unlock()
 
 	// Bounds-checked here (rather than in ParseRowCol) since the valid range depends
 	// on this session's current board size, which isn't known/lockable until now.
@@ -327,7 +407,11 @@ func (wx *WebAppX) Switch(c echo.Context) error {
 
 		slog.Warn(errMsg, utils.FuncAttrKey, utils.Caller())
 
-		return c.Render(http.StatusOK, "index", utils.UpdateStateResponse(wx.gameState(sess, expired), resp))
+		state := wx.gameState(sess, expired)
+		state.Response = responseFromMap(resp)
+		sess.Unlock()
+
+		return c.Render(http.StatusOK, "index", state)
 	}
 
 	pos := (sess.Game.Dim * row) + col
@@ -337,10 +421,18 @@ func (wx *WebAppX) Switch(c echo.Context) error {
 	moves = append(moves, pos)
 	sess.Game.SetPreviousMoves(moves)
 
-	slog.Debug(fmt.Sprintf("Move History: %v", moves), utils.FuncAttrKey, utils.Caller())
-	sess.Game.PrettyPrintGrid()
+	if debugEnabled() {
+		slog.Debug(fmt.Sprintf("Move History: %v", moves), utils.FuncAttrKey, utils.Caller())
+		sess.Game.PrettyPrintGrid()
+	}
 
-	return c.Render(http.StatusOK, "index", utils.UpdateStateResponse(wx.gameState(sess, expired), resp))
+	// Unlocked before Render (I/O-bound template execution + response write), rather
+	// than held across it via defer, so a concurrent request for this same session
+	// isn't serialized across I/O it doesn't need to wait on.
+	state := wx.gameState(sess, expired)
+	sess.Unlock()
+
+	return c.Render(http.StatusOK, "index", state)
 }
 
 // Wait serves an SSE stream for a client that couldn't get a session slot. It rechecks

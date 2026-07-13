@@ -156,6 +156,21 @@ func TestPreviousMovesRoundTrip(t *testing.T) {
 	}
 }
 
+// TestSetPreviousMovesDefensiveCopy is a regression test: SetPreviousMoves must copy
+// its argument, matching every Get* accessor's own defensive copy, so a caller
+// mutating the slice it passed in afterward can't reach back in and corrupt state.
+func TestSetPreviousMovesDefensiveCopy(t *testing.T) {
+	g := &Grid{}
+
+	moves := []int{1, 2, 3}
+	g.SetPreviousMoves(moves)
+
+	moves[0] = 99
+	if g.moveHistory[0] != 1 {
+		t.Fatalf("mutating the slice passed to SetPreviousMoves() affected internal state: %v", g.moveHistory)
+	}
+}
+
 func TestCheckWin(t *testing.T) {
 	tests := []struct {
 		name string
