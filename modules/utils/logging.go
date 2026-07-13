@@ -51,6 +51,12 @@ type prettyHandler struct {
 	name  string
 	pid   int
 	level slog.Level
+
+	// attrs are bound via WithAttrs (e.g. slog.Default().With(...)); their keys are
+	// already group-qualified at bind time. groupPrefix is the dot-joined chain of
+	// WithGroup names still open, applied to attrs passed directly to a log call.
+	attrs       []slog.Attr
+	groupPrefix string
 }
 
 func newPrettyHandler(w io.Writer, name string, level slog.Level) *prettyHandler {
@@ -67,17 +73,42 @@ func (h *prettyHandler) Enabled(_ context.Context, level slog.Level) bool {
 	return level >= h.level
 }
 
+// qualifyKey prefixes key with any still-open WithGroup names, matching slog's group
+// convention (e.g. group "req" + key "id" -> "req.id").
+func qualifyKey(prefix, key string) string {
+	if prefix == "" {
+		return key
+	}
+	return prefix + "." + key
+}
+
+func formatAttr(a slog.Attr) string {
+	return a.Key + "=" + a.Value.String()
+}
+
+// Handle renders the fixed "funcName -- message" line the rest of this package relies
+// on, then appends any bound (WithAttrs) or call-site attrs other than FuncAttrKey as
+// trailing "key=value" pairs -- so a future slog.Default().With(...)/WithGroup(...)
+// call surfaces its attrs instead of silently vanishing, without changing the line
+// shape for the common case (only FuncAttrKey) that the rest of this codebase uses.
 func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
 	funcName := "?"
+
+	parts := make([]string, 0, len(h.attrs)+r.NumAttrs())
+	for _, a := range h.attrs {
+		parts = append(parts, formatAttr(a))
+	}
+
 	r.Attrs(func(a slog.Attr) bool {
 		if a.Key == FuncAttrKey {
 			funcName = a.Value.String()
-			return false
+			return true
 		}
+		parts = append(parts, formatAttr(slog.Attr{Key: qualifyKey(h.groupPrefix, a.Key), Value: a.Value}))
 		return true
 	})
 
-	line := fmt.Sprintf("[%s,%03d] [%d] [%s] [%s]: %s -- %s\n",
+	line := fmt.Sprintf("[%s,%03d] [%d] [%s] [%s]: %s -- %s",
 		r.Time.Format("2006-01-02 15:04:05"),
 		r.Time.Nanosecond()/1e6,
 		h.pid,
@@ -86,6 +117,10 @@ func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
 		funcName,
 		r.Message,
 	)
+	if len(parts) > 0 {
+		line += " " + strings.Join(parts, " ")
+	}
+	line += "\n"
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -94,12 +129,29 @@ func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
 	return err
 }
 
-func (h *prettyHandler) WithAttrs(_ []slog.Attr) slog.Handler {
-	return h
+func (h *prettyHandler) WithAttrs(as []slog.Attr) slog.Handler {
+	if len(as) == 0 {
+		return h
+	}
+
+	qualified := make([]slog.Attr, 0, len(as))
+	for _, a := range as {
+		qualified = append(qualified, slog.Attr{Key: qualifyKey(h.groupPrefix, a.Key), Value: a.Value})
+	}
+
+	next := *h
+	next.attrs = append(append([]slog.Attr{}, h.attrs...), qualified...)
+	return &next
 }
 
-func (h *prettyHandler) WithGroup(_ string) slog.Handler {
-	return h
+func (h *prettyHandler) WithGroup(name string) slog.Handler {
+	if name == "" {
+		return h
+	}
+
+	next := *h
+	next.groupPrefix = qualifyKey(h.groupPrefix, name)
+	return &next
 }
 
 // ParseLogLevel maps a config string (case-insensitive) to a slog.Level.
@@ -123,6 +175,11 @@ func ParseLogLevel(s string) (slog.Level, error) {
 // stay visible in the console while also persisting to disk. The returned io.Closer
 // releases the log file's handle; callers that need the log file removable afterward
 // (e.g. tests cleaning up a temp directory) should Close() it once done.
+//
+// SetupLogging replaces the process-wide slog default logger, so real production usage
+// calls it exactly once (from main). A caller that needs to call it again -- e.g. a test
+// reconfiguring the config between cases -- must Close() the io.Closer from the previous
+// call first, or that earlier rotator's open file handle leaks.
 func SetupLogging(config *Config) io.Closer {
 	rotator := &lumberjack.Logger{
 		Filename:   config.LogFilePath,

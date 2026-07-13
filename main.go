@@ -19,6 +19,17 @@ import (
 
 // shutdownTimeout bounds how long in-flight requests get to finish once a
 // shutdown signal arrives, before the server is forced closed.
+//
+// This is best-effort for an open /wait SSE connection specifically: webapp.Wait only
+// returns early on its own request context being canceled (the client disconnecting) or
+// on a session becoming available at its SessionWaitCheckIntervalSeconds ticker -- it
+// does not watch this shutdown deadline itself, and Echo's graceful Shutdown does not
+// cancel in-flight request contexts, only stop accepting new ones and wait for existing
+// ones to finish. So if SessionWaitCheckIntervalSeconds is configured larger than
+// shutdownTimeout, a currently-waiting client can keep its connection open past
+// shutdownTimeout (Shutdown then just returns a logged error while the process exits
+// anyway, which closes the socket at the OS level). Keeping
+// SessionWaitCheckIntervalSeconds well under this value avoids relying on that.
 const shutdownTimeout = 10 * time.Second
 
 // defaultVersion is shown if the embedded VERSION file is ever empty, so the frontend
@@ -49,7 +60,7 @@ func main() {
 
 	wx.Server.POST("/reset", wx.Reset)
 	wx.Server.POST("/switch", wx.Switch)
-	wx.Server.GET("/revert", wx.RevertMove)
+	wx.Server.POST("/revert", wx.RevertMove)
 	wx.Server.GET("/wait", wx.Wait)
 	wx.Server.GET("/", wx.InitHTMX)
 

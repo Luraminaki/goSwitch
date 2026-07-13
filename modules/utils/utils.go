@@ -135,37 +135,13 @@ func validateConfig(config *Config) error {
 		seenPatterns[val] = true
 	}
 
-	if config.MaxSessions < 1 {
-		return fmt.Errorf("'MaxSessions' must be >= 1, got %d", config.MaxSessions)
-	}
-
-	if config.SessionTTLSeconds < 1 {
-		return fmt.Errorf("'SessionTTLSeconds' must be >= 1, got %d", config.SessionTTLSeconds)
-	}
-
 	if config.SessionIdleTimeoutSeconds < 1 || config.SessionIdleTimeoutSeconds > config.SessionTTLSeconds {
 		return fmt.Errorf("'SessionIdleTimeoutSeconds' must be in [1, SessionTTLSeconds=%d], got %d",
 			config.SessionTTLSeconds, config.SessionIdleTimeoutSeconds)
 	}
 
-	if config.SessionWaitCheckIntervalSeconds < 1 {
-		return fmt.Errorf("'SessionWaitCheckIntervalSeconds' must be >= 1, got %d", config.SessionWaitCheckIntervalSeconds)
-	}
-
-	if config.MaxWaitingConnections < 1 {
-		return fmt.Errorf("'MaxWaitingConnections' must be >= 1, got %d", config.MaxWaitingConnections)
-	}
-
 	if config.LogFilePath == "" {
 		return fmt.Errorf("'LogFilePath' must not be empty")
-	}
-
-	if config.LogMaxSizeMB < 1 {
-		return fmt.Errorf("'LogMaxSizeMB' must be >= 1, got %d", config.LogMaxSizeMB)
-	}
-
-	if config.LogMaxBackups < 1 {
-		return fmt.Errorf("'LogMaxBackups' must be >= 1, got %d", config.LogMaxBackups)
 	}
 
 	if _, err := ParseLogLevel(config.LogLevel); err != nil {
@@ -176,17 +152,48 @@ func validateConfig(config *Config) error {
 		return fmt.Errorf("'RateLimitRequestsPerSecond' must be > 0, got %v", config.RateLimitRequestsPerSecond)
 	}
 
-	if config.RateLimitBurst < 1 {
-		return fmt.Errorf("'RateLimitBurst' must be >= 1, got %d", config.RateLimitBurst)
+	// These share the same ">= 1" shape; the checks above don't (each has its own
+	// distinct condition), so they're left explicit rather than folded in here too.
+	for _, field := range []struct {
+		name string
+		val  int
+	}{
+		{"MaxSessions", config.MaxSessions},
+		{"SessionTTLSeconds", config.SessionTTLSeconds},
+		{"SessionWaitCheckIntervalSeconds", config.SessionWaitCheckIntervalSeconds},
+		{"MaxWaitingConnections", config.MaxWaitingConnections},
+		{"LogMaxSizeMB", config.LogMaxSizeMB},
+		{"LogMaxBackups", config.LogMaxBackups},
+		{"RateLimitBurst", config.RateLimitBurst},
+	} {
+		if err := atLeastOne(field.name, field.val); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
+// atLeastOne returns an error if val is below 1, naming the offending field.
+func atLeastOne(name string, val int) error {
+	if val < 1 {
+		return fmt.Errorf("'%s' must be >= 1, got %d", name, val)
+	}
+	return nil
+}
+
+// BuildNeighborhoodFromConfig assumes len(config.ToggleSequence) >=
+// len(config.AvailableToggleSequence), which validateConfig guarantees for any Config
+// that's passed validation. Callers constructing a Config by hand (bypassing
+// ParseJSONConfig/validateConfig) that violate this get a neighborhood built from
+// however many entries are actually available, rather than a panic.
 func BuildNeighborhoodFromConfig(config *Config) []int {
 	neighborhood := make([]int, 0, len(config.AvailableToggleSequence))
 
 	for idx, val := range config.AvailableToggleSequence {
+		if idx >= len(config.ToggleSequence) {
+			break
+		}
 		if config.ToggleSequence[idx] {
 			neighborhood = append(neighborhood, val)
 		}
@@ -241,21 +248,38 @@ func ProcessRequestQuery(c echo.Context) map[string]interface{} {
 	return valuesToJSONMap(c.QueryParams())
 }
 
-// firstFormValue safely extracts the first value of a form/query field produced by
-// ProcessRequestForm / ProcessRequestQuery, without panicking if the key is missing
-// or holds an unexpected type (both reachable by hitting the endpoints directly).
-func firstFormValue(jsonMap map[string]interface{}, key string) (string, bool) {
+// formValues safely extracts all values of a multi-value form/query field (e.g.
+// repeated checkboxes) produced by ProcessRequestForm / ProcessRequestQuery, without
+// panicking if the key is missing or holds an unexpected type (both reachable by
+// hitting the endpoints directly).
+func formValues(jsonMap map[string]interface{}, key string) ([]string, bool) {
 	raw, ok := jsonMap[key]
-	if !ok {
-		return "", false
+	if !ok || raw == nil {
+		return nil, false
 	}
 
 	values, ok := raw.([]string)
+	if !ok {
+		return nil, false
+	}
+
+	return values, true
+}
+
+// firstFormValue safely extracts the first value of a single-value form/query field.
+func firstFormValue(jsonMap map[string]interface{}, key string) (string, bool) {
+	values, ok := formValues(jsonMap, key)
 	if !ok || len(values) == 0 {
 		return "", false
 	}
 
 	return values[0], true
+}
+
+// OKResp returns a fresh success response, the shape every Parse* helper expects to
+// start from.
+func OKResp() map[string]interface{} {
+	return map[string]interface{}{"Status": "SUCCESS", "Error": ""}
 }
 
 // fail marks resp as an error with msg, logs it (at the call site's own function name,
@@ -294,9 +318,8 @@ func ParseDim(jsonMap map[string]interface{}, resp map[string]interface{}) (int,
 // state and grid.NewGrid's actual board could silently diverge, or an unrecognized
 // value could make the resulting board permanently unswitchable.
 func ParseNeighborhood(jsonMap map[string]interface{}, resp map[string]interface{}, availableToggleSequence []int) ([]int, map[string]interface{}) {
-	raw, ok := jsonMap["neighborhood"]
-	values, valuesOk := raw.([]string)
-	if !ok || raw == nil || !valuesOk {
+	values, ok := formValues(jsonMap, "neighborhood")
+	if !ok {
 		slog.Warn(fail(resp, "Params error: 'neighborhood' key missing"), FuncAttrKey, Caller())
 		return make([]int, 0), resp
 	}
@@ -345,30 +368,34 @@ func ParseCheat(jsonMap map[string]interface{}, resp map[string]interface{}) (bo
 	return cheat, resp
 }
 
+// parseIntField extracts and parses a single required int field. On failure it marks
+// resp as an error (via fail) and returns the failure message for the caller to log
+// itself -- callers must do their own slog.Warn(msg, FuncAttrKey, Caller()) rather than
+// this helper doing it, so Caller() still reports the real call site's function name.
+func parseIntField(jsonMap map[string]interface{}, resp map[string]interface{}, key string) (val int, failMsg string, ok bool) {
+	raw, found := firstFormValue(jsonMap, key)
+	if !found {
+		return 0, fail(resp, fmt.Sprintf("Params error: '%s' key missing", key)), false
+	}
+
+	val, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fail(resp, "Params error: "+err.Error()), false
+	}
+
+	return val, "", true
+}
+
 func ParseRowCol(jsonMap map[string]interface{}, resp map[string]interface{}) (int, int, map[string]interface{}) {
-	rowRaw, ok := firstFormValue(jsonMap, "row")
+	row, msg, ok := parseIntField(jsonMap, resp, "row")
 	if !ok {
-		slog.Warn(fail(resp, "Params error: 'row' key missing"), FuncAttrKey, Caller())
+		slog.Warn(msg, FuncAttrKey, Caller())
 		return -1, -1, resp
 	}
 
-	row, err := strconv.Atoi(rowRaw)
-
-	if err != nil {
-		slog.Warn(fail(resp, "Params error: "+err.Error()), FuncAttrKey, Caller())
-		return -1, -1, resp
-	}
-
-	colRaw, ok := firstFormValue(jsonMap, "col")
+	col, msg, ok := parseIntField(jsonMap, resp, "col")
 	if !ok {
-		slog.Warn(fail(resp, "Params error: 'col' key missing"), FuncAttrKey, Caller())
-		return -1, -1, resp
-	}
-
-	col, err := strconv.Atoi(colRaw)
-
-	if err != nil {
-		slog.Warn(fail(resp, "Params error: "+err.Error()), FuncAttrKey, Caller())
+		slog.Warn(msg, FuncAttrKey, Caller())
 		return -1, -1, resp
 	}
 

@@ -75,13 +75,17 @@ func newTestServer(t *testing.T, override func(*utils.Config)) *httptest.Server 
 	wx.Version = "test"
 	wx.Server.POST("/reset", wx.Reset)
 	wx.Server.POST("/switch", wx.Switch)
-	wx.Server.GET("/revert", wx.RevertMove)
+	wx.Server.POST("/revert", wx.RevertMove)
 	wx.Server.GET("/wait", wx.Wait)
 	wx.Server.GET("/", wx.InitHTMX)
 
 	srv := httptest.NewServer(wx.Server)
-	t.Cleanup(srv.Close)
+	// t.Cleanup runs LIFO, so registering LogCloser first means srv.Close() -- which
+	// waits for in-flight requests to finish -- runs before the log file closes,
+	// rather than after. Registered in the opposite order, a request still logging
+	// during shutdown could write to an already-closed file.
 	t.Cleanup(func() { _ = wx.LogCloser.Close() })
+	t.Cleanup(srv.Close)
 
 	return srv
 }
@@ -183,12 +187,12 @@ func TestFullGamePlayFlow(t *testing.T) {
 		t.Fatalf("POST /reset did not apply the new Dim=4, got: %s", body)
 	}
 
-	status, body = mustGet(t, client, srv.URL+"/revert")
+	status, body = mustPostForm(t, client, srv.URL+"/revert", nil)
 	if status != http.StatusOK {
-		t.Fatalf("GET /revert = %d, want 200", status)
+		t.Fatalf("POST /revert = %d, want 200", status)
 	}
 	if !strings.Contains(body, "Not allowed") {
-		t.Fatalf("GET /revert after a reset should report nothing to revert, got: %s", body)
+		t.Fatalf("POST /revert after a reset should report nothing to revert, got: %s", body)
 	}
 }
 
@@ -370,6 +374,108 @@ func TestCapacityAndSSEWait(t *testing.T) {
 	}
 }
 
+// TestRevertMoveSuccessPath is the success-path counterpart to TestFullGamePlayFlow's
+// revert assertion (which only exercises the "nothing to revert" error branch): it
+// confirms a real move is actually undone rather than just checking the error path.
+func TestRevertMoveSuccessPath(t *testing.T) {
+	srv := newTestServer(t, nil)
+	client := newClient(t)
+
+	mustGet(t, client, srv.URL+"/")
+
+	_, body := mustPostForm(t, client, srv.URL+"/switch?row=0&col=0", nil)
+	if !strings.Contains(body, "[0]") {
+		t.Fatalf("POST /switch did not record move 0 in history, got: %s", body)
+	}
+
+	status, body := mustPostForm(t, client, srv.URL+"/revert", nil)
+	if status != http.StatusOK {
+		t.Fatalf("POST /revert = %d, want 200", status)
+	}
+	if strings.Contains(body, "[0]") {
+		t.Fatalf("POST /revert should have removed move 0 from history, got: %s", body)
+	}
+	if strings.Contains(body, "Not allowed") {
+		t.Fatalf("reverting a real move should not report an error, got: %s", body)
+	}
+}
+
+// TestHandlersRenderWaitingPageAtCapacity checks that Reset, Switch, and RevertMove --
+// not just InitHTMX -- fall back to the waiting page (via withSession's shared
+// "handled" branch) rather than dereferencing a nil session when a client has no slot.
+func TestHandlersRenderWaitingPageAtCapacity(t *testing.T) {
+	srv := newTestServer(t, func(c *utils.Config) {
+		c.MaxSessions = 1
+	})
+
+	clientA := newClient(t)
+	mustGet(t, clientA, srv.URL+"/") // takes the only slot
+
+	clientB := newClient(t)
+	mustGet(t, clientB, srv.URL+"/") // gets a waiting-room cookie, no session
+
+	for _, tc := range []struct {
+		name string
+		do   func() (int, string)
+	}{
+		{"Reset", func() (int, string) { return mustPostForm(t, clientB, srv.URL+"/reset", nil) }},
+		{"Switch", func() (int, string) { return mustPostForm(t, clientB, srv.URL+"/switch?row=0&col=0", nil) }},
+		{"RevertMove", func() (int, string) { return mustPostForm(t, clientB, srv.URL+"/revert", nil) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			status, body := tc.do()
+			if status != http.StatusOK {
+				t.Fatalf("%s while waiting = %d, want 200", tc.name, status)
+			}
+			if !strings.Contains(body, "All Tables Are Busy") {
+				t.Fatalf("%s while waiting should render the waiting page, got: %s", tc.name, body)
+			}
+		})
+	}
+}
+
+// TestWaitReturnsOnClientDisconnect is a regression test for a goroutine/connection
+// leak: Wait must notice ctx.Done() (the client going away) and return promptly rather
+// than blocking forever on its ticker waiting for a session slot that may never free.
+func TestWaitReturnsOnClientDisconnect(t *testing.T) {
+	srv := newTestServer(t, func(c *utils.Config) {
+		c.MaxSessions = 1
+		c.SessionIdleTimeoutSeconds = c.SessionTTLSeconds // never idles out mid-test
+		c.SessionWaitCheckIntervalSeconds = 30            // long enough that only disconnect ends the test
+	})
+
+	clientA := newClient(t)
+	mustGet(t, clientA, srv.URL+"/") // takes the only slot
+
+	clientB := newClient(t)
+	mustGet(t, clientB, srv.URL+"/") // gets a waiting-room cookie
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/wait", nil)
+	if err != nil {
+		t.Fatalf("failed to build /wait request: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		resp, doErr := clientB.Do(req) //nolint:bodyclose // asserted and closed below once the goroutine hands off
+		if doErr == nil {
+			_ = resp.Body.Close()
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// The client-side context deadline tore down the connection; the server's own
+		// ctx.Done() branch should have returned rather than leaking the goroutine.
+	case <-time.After(5 * time.Second):
+		t.Fatal("GET /wait did not return promptly after the client disconnected")
+	}
+}
+
 // TestWaitConnectionCapIsEnforced is a regression test for an unbounded-connections
 // DoS vector: without a cap, any number of clients could hold an open /wait SSE
 // connection regardless of MaxSessions, since Wait() never checked a session actually
@@ -481,6 +587,31 @@ func TestSessionExpiryNotice(t *testing.T) {
 	}
 }
 
+// TestTrimmedVersionFallsBackWhenEmpty is a direct test of trimmedVersion()'s
+// defaultVersion fallback -- the real embedded VERSION file is never empty in this
+// repo, so nothing else exercises this branch.
+func TestTrimmedVersionFallsBackWhenEmpty(t *testing.T) {
+	prev := rawVersion
+	defer func() { rawVersion = prev }()
+
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"empty", "", defaultVersion},
+		{"whitespace only", "   \n\t", defaultVersion},
+		{"real version", "1.2.3\n", "1.2.3"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rawVersion = tc.raw
+			if got := trimmedVersion(); got != tc.want {
+				t.Errorf("trimmedVersion() with rawVersion=%q = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestVersionMatchesChangelog guards against VERSION and CHANGELOG.md silently
 // drifting apart -- nothing else (the build, CI) checks that the embedded version and
 // the changelog's most recent entry agree.
@@ -496,16 +627,25 @@ func TestVersionMatchesChangelog(t *testing.T) {
 		t.Fatalf("failed to read CHANGELOG.md: %v", err)
 	}
 
+	// Skips a non-version heading (e.g. a future "## Unreleased" convention) rather than
+	// taking the very first "## " line unconditionally -- a version heading always
+	// starts with a digit, which "Unreleased" (or similar) never would.
 	var latest string
 	for _, line := range strings.Split(string(changelogBytes), "\n") {
-		if strings.HasPrefix(line, "## ") {
-			latest = strings.TrimSpace(strings.TrimPrefix(line, "## "))
-			break
+		heading, isHeading := strings.CutPrefix(line, "## ")
+		if !isHeading {
+			continue
 		}
+		heading = strings.TrimSpace(heading)
+		if heading == "" || heading[0] < '0' || heading[0] > '9' {
+			continue
+		}
+		latest = heading
+		break
 	}
 
 	if latest == "" {
-		t.Fatal(`CHANGELOG.md has no "## " version heading`)
+		t.Fatal(`CHANGELOG.md has no "## " version heading (expected one starting with a digit)`)
 	}
 	if latest != version {
 		t.Fatalf("CHANGELOG.md's latest entry (%q) does not match VERSION (%q)", latest, version)

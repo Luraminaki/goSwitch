@@ -46,6 +46,61 @@ func TestNewGridProducesConsistentUnsolvedBoard(t *testing.T) {
 	}
 }
 
+// TestGetPossibleSolutionIsActuallyValid is a regression test for a bug where the
+// maxInitAttempts fallback recorded a "solution" that didn't actually solve the board:
+// whenever GetPossibleSolution() is non-empty, applying every move in it, in order, via
+// Switch must reach CheckWin()==true. This would have caught that bug directly, instead
+// of relying on eyeballing the rendered cheat hint. An empty solution is a separate,
+// valid case (the structurally-degenerate maxInitAttempts fallback deliberately leaves
+// it empty, since no real move sequence solves that board -- see NewGrid) and is skipped
+// here rather than treated as a failure to reach a win.
+func TestGetPossibleSolutionIsActuallyValid(t *testing.T) {
+	for _, dim := range []int{2, 3, 4, 5} {
+		for _, neighborhood := range [][]int{{0}, {4}, {8}, {0, 4}, {4, 8}, {0, 4, 8}} {
+			for i := 0; i < 20; i++ {
+				g := NewGrid(dim, neighborhood)
+
+				solution := g.GetPossibleSolution()
+				if len(solution) == 0 {
+					continue
+				}
+
+				for _, pos := range solution {
+					g.Switch(pos)
+				}
+
+				if !g.CheckWin() {
+					t.Fatalf("dim=%d neighborhood=%v: applying GetPossibleSolution() %v did not reach a win, board: %v",
+						dim, neighborhood, solution, g.GetGrid())
+				}
+			}
+		}
+	}
+}
+
+// TestSwitchAtCorner exercises switchV4/switchV8's OOB-clipping logic, which the
+// center-of-a-3x3-grid cases used elsewhere in this file can't reach: a corner has
+// fewer than 4 orthogonal/diagonal neighbors, so clipping bugs are only visible here.
+func TestSwitchAtCorner(t *testing.T) {
+	tests := []struct {
+		name         string
+		neighborhood []int
+		want         []int
+	}{
+		{"self", []int{0}, []int{1, 0, 0, 0, 0, 0, 0, 0, 0}},
+		{"orthogonal", []int{4}, []int{0, 1, 0, 1, 0, 0, 0, 0, 0}},
+		{"diagonal", []int{8}, []int{0, 0, 0, 0, 1, 0, 0, 0, 0}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := &Grid{Dim: 3, neighborhood: tt.neighborhood, grid: make([]int, 9)}
+			g.Switch(0) // top-left corner
+			assertGrid(t, g, tt.want)
+		})
+	}
+}
+
 // TestNewGridNeverHangsOnDegenerateNeighborhood is a regression test: a 2x2 grid
 // with every pattern enabled ({0,4,8}) makes every switch touch all 4 cells
 // uniformly, so the board can never be anything but solved. NewGrid must bail out
@@ -190,6 +245,46 @@ func TestCheckWin(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNewGridDimEdgeCases documents NewGrid's behavior at the edges of its exported
+// contract (dim=0, dim=1) -- none of these are reachable via the HTTP API, since
+// utils.ParseDim clamps to [2,5], but NewGrid itself has no such guard, so this pins
+// down the actual behavior for any other caller.
+func TestNewGridDimEdgeCases(t *testing.T) {
+	t.Run("dim=0 panics", func(t *testing.T) {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("NewGrid(0, ...) did not panic (rand.Intn(0) is documented to)")
+			}
+		}()
+		NewGrid(0, []int{0})
+	})
+
+	t.Run("dim=1 is tautologically always won", func(t *testing.T) {
+		g := NewGrid(1, []int{0})
+		if !g.CheckWin() {
+			t.Fatal("dim=1's single cell should always satisfy CheckWin() (sum is always 0 or Dim*Dim)")
+		}
+	})
+}
+
+// TestSwitchWithDuplicateOrUnknownNeighborhood documents Switch's actual behavior for
+// neighborhood values outside {0,4,8} or containing duplicates -- not reachable via the
+// HTTP API today (utils.ParseNeighborhood rejects both), but Switch itself has no
+// validation of its own, so this pins down what a direct caller actually gets.
+func TestSwitchWithDuplicateOrUnknownNeighborhood(t *testing.T) {
+	t.Run("duplicate pattern cancels out to a no-op", func(t *testing.T) {
+		g := &Grid{Dim: 3, neighborhood: []int{4, 4}, grid: make([]int, 9)}
+		g.Switch(4)
+		assertGrid(t, g, make([]int, 9)) // each orthogonal neighbor toggled twice = unchanged
+	})
+
+	t.Run("unknown pattern value is silently ignored", func(t *testing.T) {
+		g := &Grid{Dim: 3, neighborhood: []int{99}, grid: make([]int, 9)}
+		g.Switch(4)
+		assertGrid(t, g, make([]int, 9)) // no case in Switch's switch matches 99
+	})
 }
 
 func assertGrid(t *testing.T, g *Grid, want []int) {

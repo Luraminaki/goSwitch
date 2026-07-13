@@ -149,6 +149,16 @@ func NewWebApp(configPath string) *WebAppX {
 	return webApp
 }
 
+// readSessionCookie returns the session ID from the client's goswitch_sid cookie, if
+// present and non-empty.
+func readSessionCookie(c echo.Context) (id string, ok bool) {
+	cookie, err := c.Cookie(sessionCookieName)
+	if err != nil || cookie.Value == "" {
+		return "", false
+	}
+	return cookie.Value, true
+}
+
 // resolveSession maps the incoming request to its session, minting a new candidate ID
 // when the client has none. The cookie is always (re)written, even when the manager is
 // at capacity, so a waiting client's later /wait SSE connection can claim the same ID
@@ -159,11 +169,8 @@ func NewWebApp(configPath string) *WebAppX {
 // silently resets with no explanation. err is non-nil only if a new id could not be
 // generated at all (e.g. the OS entropy source failed).
 func (wx *WebAppX) resolveSession(c echo.Context) (sess *session.Session, ok bool, expired bool, err error) {
-	id := ""
-	if cookie, cookieErr := c.Cookie(sessionCookieName); cookieErr == nil && cookie.Value != "" {
-		id = cookie.Value
-	}
-	if id == "" {
+	id, hadCookie := readSessionCookie(c)
+	if !hadCookie {
 		id, err = session.NewID()
 		if err != nil {
 			return nil, false, false, err
@@ -244,6 +251,24 @@ func (wx *WebAppX) waitState() pageState {
 	return state
 }
 
+// withSession resolves the session for c, handling the two outcomes shared by every
+// handler itself: a resolution failure (logged, 500) or a client that must wait (the
+// waiting-room page rendered). In either case handled is true and the caller should
+// just `return err` immediately. Only when handled is false does the caller have a real
+// sess to work with.
+func (wx *WebAppX) withSession(c echo.Context) (sess *session.Session, expired bool, handled bool, err error) {
+	sess, ok, expired, resolveErr := wx.resolveSession(c)
+	if resolveErr != nil {
+		slog.Error(fmt.Sprintf("resolveSession failed: %v", resolveErr), utils.FuncAttrKey, utils.Caller())
+		return nil, false, true, c.NoContent(http.StatusInternalServerError)
+	}
+	if !ok {
+		slog.Info("Client waiting for a session slot", utils.FuncAttrKey, utils.Caller())
+		return nil, false, true, c.Render(http.StatusOK, "index", wx.waitState())
+	}
+	return sess, expired, false, nil
+}
+
 // renderSession locks sess, snapshots its state (with Response set from resp), renders
 // and unlocks.
 func (wx *WebAppX) renderSession(c echo.Context, sess *session.Session, expired bool, resp map[string]interface{}) error {
@@ -256,14 +281,9 @@ func (wx *WebAppX) renderSession(c echo.Context, sess *session.Session, expired 
 }
 
 func (wx *WebAppX) InitHTMX(c echo.Context) error {
-	sess, ok, expired, err := wx.resolveSession(c)
-	if err != nil {
-		slog.Error(fmt.Sprintf("resolveSession failed: %v", err), utils.FuncAttrKey, utils.Caller())
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	if !ok {
-		slog.Info("Client waiting for a session slot", utils.FuncAttrKey, utils.Caller())
-		return c.Render(http.StatusOK, "index", wx.waitState())
+	sess, expired, handled, err := wx.withSession(c)
+	if handled {
+		return err
 	}
 
 	// Debug, not Info: the session ID is the only value gating access to that session's
@@ -281,17 +301,13 @@ func (wx *WebAppX) InitHTMX(c echo.Context) error {
 }
 
 func (wx *WebAppX) Reset(c echo.Context) error {
-	sess, ok, expired, err := wx.resolveSession(c)
-	if err != nil {
-		slog.Error(fmt.Sprintf("resolveSession failed: %v", err), utils.FuncAttrKey, utils.Caller())
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	if !ok {
-		return c.Render(http.StatusOK, "index", wx.waitState())
+	sess, expired, handled, err := wx.withSession(c)
+	if handled {
+		return err
 	}
 
 	jsonMap := utils.ProcessRequestForm(c)
-	resp := map[string]interface{}{"Status": "SUCCESS", "Error": ""}
+	resp := utils.OKResp()
 
 	if debugEnabled() {
 		slog.Debug(fmt.Sprintf("Data received: %v", jsonMap), utils.FuncAttrKey, utils.Caller())
@@ -332,13 +348,9 @@ func (wx *WebAppX) Reset(c echo.Context) error {
 }
 
 func (wx *WebAppX) RevertMove(c echo.Context) error {
-	sess, ok, expired, err := wx.resolveSession(c)
-	if err != nil {
-		slog.Error(fmt.Sprintf("resolveSession failed: %v", err), utils.FuncAttrKey, utils.Caller())
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	if !ok {
-		return c.Render(http.StatusOK, "index", wx.waitState())
+	sess, expired, handled, err := wx.withSession(c)
+	if handled {
+		return err
 	}
 
 	sess.Lock()
@@ -375,17 +387,13 @@ func (wx *WebAppX) RevertMove(c echo.Context) error {
 }
 
 func (wx *WebAppX) Switch(c echo.Context) error {
-	sess, ok, expired, err := wx.resolveSession(c)
-	if err != nil {
-		slog.Error(fmt.Sprintf("resolveSession failed: %v", err), utils.FuncAttrKey, utils.Caller())
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	if !ok {
-		return c.Render(http.StatusOK, "index", wx.waitState())
+	sess, expired, handled, err := wx.withSession(c)
+	if handled {
+		return err
 	}
 
 	jsonMap := utils.ProcessRequestQuery(c)
-	resp := map[string]interface{}{"Status": "SUCCESS", "Error": ""}
+	resp := utils.OKResp()
 
 	if debugEnabled() {
 		slog.Debug(fmt.Sprintf("Data received: %v", jsonMap), utils.FuncAttrKey, utils.Caller())
@@ -439,11 +447,10 @@ func (wx *WebAppX) Switch(c echo.Context) error {
 // at SessionWaitCheckIntervalSeconds and, once a slot frees up for this client's ID,
 // pushes a single "ready" event containing the rendered game fragment, then closes.
 func (wx *WebAppX) Wait(c echo.Context) error {
-	cookie, err := c.Cookie(sessionCookieName)
-	if err != nil || cookie.Value == "" {
+	id, ok := readSessionCookie(c)
+	if !ok {
 		return c.NoContent(http.StatusBadRequest)
 	}
-	id := cookie.Value
 
 	if wx.waitingConns.Add(1) > int32(wx.Config.MaxWaitingConnections) { //nolint:gosec // MaxWaitingConnections is validated >= 1 at startup, never near int32's range
 		wx.waitingConns.Add(-1)
