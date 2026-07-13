@@ -8,18 +8,6 @@ on:
 permissions:
   contents: read
 
-# actions/setup-go@v6 sets GOTOOLCHAIN=local whenever go-version is given explicitly
-# (as it is below), to stop Go's own toolchain auto-switching from silently overriding
-# the version setup-go just installed. That's exactly backwards for us: go.mod's
-# `toolchain go1.26.5` line only matters if auto-switching is allowed to act on it, and
-# setup-go's cataloged "latest 1.26.x" can otherwise lag behind (it did: it installed
-# 1.26.4, missing the crypto/tls fix in 1.26.5 that GO-2026-5856 needs -- CI failed
-# govulncheck on exactly that gap). GOTOOLCHAIN=auto here restores go.mod as the actual
-# source of truth for the exact patch version, which is also what already happens in
-# every local dev environment.
-env:
-  GOTOOLCHAIN: auto
-
 jobs:
   test:
     name: Build, vet, format, test
@@ -36,6 +24,19 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26"
+
+      # setup-go writes GOTOOLCHAIN=local into $GITHUB_ENV as part of the step above
+      # (to stop Go's own toolchain auto-switching from "fighting" the version it just
+      # installed), which persists to every later step and silently overrides go.mod's
+      # `toolchain go1.26.5` line -- a plain job/workflow-level `env:` can't win against
+      # this, since GITHUB_ENV writes from an earlier step take precedence over those.
+      # setup-go had only 1.26.4 cataloged, missing the crypto/tls fix 1.26.5 has for
+      # GO-2026-5856, so govulncheck correctly failed against the unpatched stdlib this
+      # produced. Re-exporting GOTOOLCHAIN=auto here, after setup-go's own write, lets
+      # go.mod's toolchain line be the real source of truth again, matching every local
+      # dev environment.
+      - name: Allow go.mod's toolchain directive to upgrade the patch version
+        run: echo "GOTOOLCHAIN=auto" >> "$GITHUB_ENV"
 
       - name: Check gofmt
         run: |
@@ -76,6 +77,12 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26"
+
+      # See the identical step in the test job above: setup-go pins GOTOOLCHAIN=local,
+      # which would otherwise leave golangci-lint's own build/analysis on whatever patch
+      # setup-go had cataloged instead of go.mod's `toolchain go1.26.5`.
+      - name: Allow go.mod's toolchain directive to upgrade the patch version
+        run: echo "GOTOOLCHAIN=auto" >> "$GITHUB_ENV"
 
       # Pinned rather than "latest": golangci-lint v2 is a breaking config-format change
       # from v1 (see .golangci.yml's `version: "2"`), so an unpinned jump to a future v3
