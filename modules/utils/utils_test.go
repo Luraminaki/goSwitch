@@ -46,6 +46,8 @@ func TestParseDim(t *testing.T) {
 }
 
 func TestParseNeighborhood(t *testing.T) {
+	available := []int{0, 4, 8}
+
 	tests := []struct {
 		name    string
 		jsonMap map[string]interface{}
@@ -58,11 +60,13 @@ func TestParseNeighborhood(t *testing.T) {
 		{"nil value", map[string]interface{}{"neighborhood": nil}, true, []int{}},
 		{"not a number", map[string]interface{}{"neighborhood": []string{"x"}}, true, []int{}},
 		{"empty slice", map[string]interface{}{"neighborhood": []string{}}, true, []int{}},
+		{"unsupported value", map[string]interface{}{"neighborhood": []string{"99"}}, true, []int{}},
+		{"duplicate value", map[string]interface{}{"neighborhood": []string{"4", "4"}}, true, []int{}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, resp := ParseNeighborhood(tt.jsonMap, freshResp())
+			got, resp := ParseNeighborhood(tt.jsonMap, freshResp(), available)
 			if !intSliceEqual(got, tt.want) {
 				t.Errorf("ParseNeighborhood() = %v, want %v", got, tt.want)
 			}
@@ -194,6 +198,7 @@ func TestValidateConfig(t *testing.T) {
 			SessionTTLSeconds:               1800,
 			SessionIdleTimeoutSeconds:       300,
 			SessionWaitCheckIntervalSeconds: 2,
+			MaxWaitingConnections:           50,
 			LogFilePath:                     "./logs/goswitch.log",
 			LogMaxSizeMB:                    5,
 			LogMaxBackups:                   5,
@@ -219,6 +224,8 @@ func TestValidateConfig(t *testing.T) {
 		{"idle timeout exceeds ttl", func(c *Config) { c.SessionIdleTimeoutSeconds = c.SessionTTLSeconds + 1 }},
 		{"zero idle timeout", func(c *Config) { c.SessionIdleTimeoutSeconds = 0 }},
 		{"zero wait check interval", func(c *Config) { c.SessionWaitCheckIntervalSeconds = 0 }},
+		{"zero max waiting connections", func(c *Config) { c.MaxWaitingConnections = 0 }},
+		{"unsupported available toggle sequence value", func(c *Config) { c.AvailableToggleSequence = []int{0, 4, 99} }},
 		{"empty log file path", func(c *Config) { c.LogFilePath = "" }},
 		{"zero log max size", func(c *Config) { c.LogMaxSizeMB = 0 }},
 		{"zero log max backups", func(c *Config) { c.LogMaxBackups = 0 }},
@@ -252,6 +259,7 @@ func TestParseJSONConfigValidFile(t *testing.T) {
 		"SessionTTLSeconds": 1800,
 		"SessionIdleTimeoutSeconds": 300,
 		"SessionWaitCheckIntervalSeconds": 2,
+		"MaxWaitingConnections": 50,
 		"LogFilePath": "./logs/goswitch.log",
 		"LogMaxSizeMB": 5,
 		"LogMaxBackups": 5,

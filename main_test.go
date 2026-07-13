@@ -40,6 +40,7 @@ func newTestConfigFile(t *testing.T, override func(*utils.Config)) string {
 		SessionTTLSeconds:               1800,
 		SessionIdleTimeoutSeconds:       300,
 		SessionWaitCheckIntervalSeconds: 2,
+		MaxWaitingConnections:           50,
 		LogFilePath:                     filepath.Join(dir, "test.log"),
 		LogMaxSizeMB:                    5,
 		LogMaxBackups:                   5,
@@ -307,6 +308,52 @@ func TestCapacityAndSSEWait(t *testing.T) {
 	_, bodyB = mustGet(t, clientB, srv.URL+"/")
 	if strings.Contains(bodyB, "All Tables Are Busy") {
 		t.Fatalf("client B should have a session after the wait resolved, got: %s", bodyB)
+	}
+}
+
+// TestWaitConnectionCapIsEnforced is a regression test for an unbounded-connections
+// DoS vector: without a cap, any number of clients could hold an open /wait SSE
+// connection regardless of MaxSessions, since Wait() never checked a session actually
+// existed for the presented cookie.
+func TestWaitConnectionCapIsEnforced(t *testing.T) {
+	srv := newTestServer(t, func(c *utils.Config) {
+		c.MaxSessions = 1
+		c.SessionIdleTimeoutSeconds = c.SessionTTLSeconds // never idles out mid-test
+		c.SessionWaitCheckIntervalSeconds = 10            // long enough to stay parked for the test
+		c.MaxWaitingConnections = 2
+	})
+
+	clientA := newClient(t)
+	mustGet(t, clientA, srv.URL+"/") // takes the only slot
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Two clients park in /wait, filling MaxWaitingConnections.
+	for i := 0; i < 2; i++ {
+		client := newClient(t)
+		mustGet(t, client, srv.URL+"/") // gets a waiting-room cookie
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/wait", nil)
+		if err != nil {
+			t.Fatalf("failed to build /wait request: %v", err)
+		}
+		go func() {
+			resp, err := client.Do(req) //nolint:bodyclose // best-effort background request, torn down by cancel() + srv.Close()
+			if err == nil {
+				_ = resp.Body.Close()
+			}
+		}()
+	}
+
+	time.Sleep(300 * time.Millisecond) // let both background /wait goroutines actually start
+
+	clientC := newClient(t)
+	mustGet(t, clientC, srv.URL+"/") // gets its own waiting-room cookie
+
+	status, _ := mustGet(t, clientC, srv.URL+"/wait")
+	if status != http.StatusServiceUnavailable {
+		t.Fatalf("a third /wait connection beyond MaxWaitingConnections=2 should be rejected, got status %d", status)
 	}
 }
 

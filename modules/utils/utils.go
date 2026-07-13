@@ -8,12 +8,18 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 
 	"encoding/json"
 
 	"github.com/labstack/echo/v4"
 )
+
+// supportedNeighborhoodPatterns must match the values grid.Grid.Switch understands
+// (0: self, 4: orthogonal, 8: diagonal). Duplicated here rather than imported from the
+// grid package to avoid a circular dependency (grid already imports utils for logging).
+var supportedNeighborhoodPatterns = []int{0, 4, 8}
 
 type Config struct {
 	Port                    string `json:"Port"`
@@ -32,6 +38,10 @@ type Config struct {
 	// SessionWaitCheckIntervalSeconds is how often a waiting client is re-checked for
 	// a freed-up slot while it holds open its SSE connection.
 	SessionWaitCheckIntervalSeconds int `json:"SessionWaitCheckIntervalSeconds"`
+	// MaxWaitingConnections caps how many clients can hold an open /wait SSE
+	// connection at once, independent of MaxSessions -- without this, a client with no
+	// real session could still hold an unbounded number of idle connections open.
+	MaxWaitingConnections int `json:"MaxWaitingConnections"`
 
 	// LogFilePath is where rotated log files are written.
 	LogFilePath string `json:"LogFilePath"`
@@ -47,7 +57,21 @@ type Config struct {
 	// RateLimitBurst is the max number of requests a single client IP can make
 	// in a short burst above the sustained rate.
 	RateLimitBurst int `json:"RateLimitBurst"`
+
+	// TrustProxyHeaders declares whether goSwitch is running behind a reverse proxy
+	// (e.g. Render's edge) that terminates TLS and sets X-Forwarded-For/-Proto. When
+	// true, those headers are trusted for client-IP-based rate limiting and for marking
+	// the session cookie Secure. When false (the safe default, matching a bare local
+	// `go run .`), they're ignored entirely so a direct, unproxied client can't spoof
+	// them. Overridable per-deployment via the GOSWITCH_TRUST_PROXY_HEADERS environment
+	// variable without editing this committed file.
+	TrustProxyHeaders bool `json:"TrustProxyHeaders"`
 }
+
+// trustProxyHeadersEnvVar lets a deployment (e.g. Render, which sits behind exactly the
+// kind of reverse proxy TrustProxyHeaders is about) override the committed config.json's
+// value without needing a separate config file per environment.
+const trustProxyHeadersEnvVar = "GOSWITCH_TRUST_PROXY_HEADERS"
 
 func ParseJSONConfig(path string) Config {
 	jsonFile, err := os.Open(path) //nolint:gosec // path is a trusted, operator-supplied startup argument, not user input
@@ -63,6 +87,14 @@ func ParseJSONConfig(path string) Config {
 
 	if err != nil {
 		log.Fatal("Error when parsing JSON file: ", err.Error())
+	}
+
+	if raw, set := os.LookupEnv(trustProxyHeadersEnvVar); set {
+		trust, parseErr := strconv.ParseBool(raw)
+		if parseErr != nil {
+			log.Fatalf("Error when parsing %s=%q: %v", trustProxyHeadersEnvVar, raw, parseErr)
+		}
+		config.TrustProxyHeaders = trust
 	}
 
 	if err := validateConfig(&config); err != nil {
@@ -82,6 +114,13 @@ func validateConfig(config *Config) error {
 			len(config.ToggleSequence), len(config.AvailableToggleSequence))
 	}
 
+	for _, val := range config.AvailableToggleSequence {
+		if !slices.Contains(supportedNeighborhoodPatterns, val) {
+			return fmt.Errorf("'AvailableToggleSequence' value %d is not a supported pattern (must be one of %v)",
+				val, supportedNeighborhoodPatterns)
+		}
+	}
+
 	if config.MaxSessions < 1 {
 		return fmt.Errorf("'MaxSessions' must be >= 1, got %d", config.MaxSessions)
 	}
@@ -97,6 +136,10 @@ func validateConfig(config *Config) error {
 
 	if config.SessionWaitCheckIntervalSeconds < 1 {
 		return fmt.Errorf("'SessionWaitCheckIntervalSeconds' must be >= 1, got %d", config.SessionWaitCheckIntervalSeconds)
+	}
+
+	if config.MaxWaitingConnections < 1 {
+		return fmt.Errorf("'MaxWaitingConnections' must be >= 1, got %d", config.MaxWaitingConnections)
 	}
 
 	if config.LogFilePath == "" {
@@ -231,7 +274,12 @@ func ParseDim(jsonMap map[string]interface{}, resp map[string]interface{}) (int,
 	return dim, resp
 }
 
-func ParseNeighborhood(jsonMap map[string]interface{}, resp map[string]interface{}) ([]int, map[string]interface{}) {
+// ParseNeighborhood parses the request's 'neighborhood' values and validates each one
+// is a member of availableToggleSequence (the server's configured, understood set of
+// patterns), with no duplicates -- otherwise BuildToggleSequenceFromRequest's checkbox
+// state and grid.NewGrid's actual board could silently diverge, or an unrecognized
+// value could make the resulting board permanently unswitchable.
+func ParseNeighborhood(jsonMap map[string]interface{}, resp map[string]interface{}, availableToggleSequence []int) ([]int, map[string]interface{}) {
 	raw, ok := jsonMap["neighborhood"]
 	values, valuesOk := raw.([]string)
 	if !ok || raw == nil || !valuesOk {
@@ -239,6 +287,7 @@ func ParseNeighborhood(jsonMap map[string]interface{}, resp map[string]interface
 		return make([]int, 0), resp
 	}
 
+	seen := make(map[int]bool, len(values))
 	var neighborhood = []int{}
 	for _, i := range values {
 		j, err := strconv.Atoi(i)
@@ -246,6 +295,17 @@ func ParseNeighborhood(jsonMap map[string]interface{}, resp map[string]interface
 			slog.Warn(fail(resp, "Params error: "+err.Error()), FuncAttrKey, Caller())
 			return make([]int, 0), resp
 		}
+
+		if !slices.Contains(availableToggleSequence, j) {
+			slog.Warn(fail(resp, fmt.Sprintf("Params error: 'neighborhood' value %d is not a supported pattern", j)), FuncAttrKey, Caller())
+			return make([]int, 0), resp
+		}
+		if seen[j] {
+			slog.Warn(fail(resp, fmt.Sprintf("Params error: 'neighborhood' value %d is duplicated", j)), FuncAttrKey, Caller())
+			return make([]int, 0), resp
+		}
+		seen[j] = true
+
 		neighborhood = append(neighborhood, j)
 	}
 
