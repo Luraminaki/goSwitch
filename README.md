@@ -8,6 +8,11 @@ Fast forward to 2024, after recieving some UIX advices from a former colleague a
 
 _although some parts could have been a lot simpler, had I used some `JS`, I feel that it would have defeated the whole purpose of this project which was to stick to `Go` and `HTMX` as much as possible..._
 
+<p align="center">
+  <img src="screenshots/gameplay.png" alt="goSwitch gameplay: a 3x3 switch-toggle grid, mid-game" width="49%">
+  <img src="screenshots/win.png" alt="goSwitch on a win: the flashing YOU WIN banner and a fully-cleared grid" width="49%">
+</p>
+
 ## VERSION
 
 The current version lives in [VERSION](VERSION) -- it's embedded into the binary at
