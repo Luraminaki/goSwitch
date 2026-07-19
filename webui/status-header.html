@@ -3,4 +3,5 @@
 
 <p class="session-badge">Sessions: {{ .SessionCount }}/{{ .MaxSessions }}</p>
 <p class="version-badge">v{{ .Version }}</p>
+{{ template "help" . }}
 {{ end }}

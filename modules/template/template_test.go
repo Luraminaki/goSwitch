@@ -70,7 +70,7 @@ func TestRealTemplatesRenderWithoutError(t *testing.T) {
 		"Response": map[string]interface{}{"Status": "SUCCESS", "Error": ""},
 	}
 
-	for _, name := range []string{"index", "game", "waiting", "status-header", "configuration", "trivia", "response", "grid"} {
+	for _, name := range []string{"index", "game", "waiting", "status-header", "help", "configuration", "trivia", "response", "grid"} {
 		t.Run(name, func(t *testing.T) {
 			var buf bytes.Buffer
 			if err := e.Renderer.Render(&buf, name, data, nil); err != nil {
