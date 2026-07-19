@@ -3,6 +3,7 @@
 
 :root {
   --bg-void: #0d0221;
+  --bg-void-rgb: 13, 2, 33;
   --bg-panel: rgba(24, 10, 46, 0.75);
   --grid-line: rgba(255, 45, 149, 0.12);
   --input-bg: #0a0416;
@@ -42,7 +43,17 @@ body {
   text-align: center;
 }
 
-/* Subtle CRT scanlines */
+/* Subtle CRT scanlines.
+   Debugging note: if you're screenshot-testing this file with
+   `msedge --headless=new --window-size=W,H` and a position:fixed; inset:0; element
+   (this one, or .help-modal below) appears to render WIDER than W -- content clipped
+   or missing a right-side border that should be visible -- that's a known quirk of
+   this exact headless invocation, not a real CSS bug: position:fixed elements
+   under-report their true width to vw/inset math in this specific tool. Confirmed by
+   giving this very element a diagnostic border-right and finding it off-screen too,
+   despite it predating and being untouched by whatever change is under investigation.
+   Verify against an unrelated, already-shipped fixed-position element like this one
+   before redesigning anything -- real browsers don't exhibit this. */
 body::before {
   content: "";
   position: fixed;
@@ -131,6 +142,168 @@ h1 {
   border: 1px solid var(--neon-amber);
   border-radius: 4px;
   box-shadow: 0 0 10px rgba(var(--neon-amber-rgb), 0.5);
+}
+
+/* Visually hidden but still focusable/keyboard-operable -- unlike display:none, which
+   would drop the element from the tab order entirely. Used for the help modal's
+   checkbox: the checkbox itself is the real control (spacebar toggles it), it's just
+   not the thing that should be visibly drawn -- .help-badge is. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.help-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: 0 0 20px 8px;
+  font-size: 0.85rem;
+  font-weight: bold;
+  color: var(--bg-void);
+  background: var(--neon-amber);
+  border-radius: 999px;
+  box-shadow: 0 0 10px rgba(var(--neon-amber-rgb), 0.6);
+  cursor: pointer;
+}
+
+.help-badge:hover {
+  box-shadow: 0 0 16px rgba(var(--neon-amber-rgb), 0.9);
+}
+
+/* :focus-visible can't land on the checkbox itself (it's visually hidden, so an
+   outline there would be invisible) -- this puts it on the badge instead, the same
+   pattern this file already uses for other visually-hidden-but-focusable controls. */
+.visually-hidden:focus-visible + .help-badge {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: 2px;
+}
+
+/* Checkbox-hack modal: #help-toggle:checked reveals .help-modal via the general
+   sibling combinator. No JS, so there's no real focus trap or Escape-to-close --
+   dismissal is mouse/touch (backdrop, the close corner, or "Got it") or, for keyboard
+   users, tabbing back to the (still-focused-after-opening) checkbox and pressing space
+   again. That's an accepted trade-off of staying JS-free, not an oversight. */
+#help-toggle:checked ~ .help-modal {
+  display: flex;
+}
+
+.help-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.help-backdrop {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  background: rgba(var(--bg-void-rgb), 0.85);
+  cursor: pointer;
+}
+
+.help-panel {
+  position: relative;
+  z-index: 1;
+  /* min-width: 0 overrides the flex item default (min-width: auto), which would
+     otherwise refuse to shrink this item below its content's natural size on a
+     narrow viewport. width: 100% (of this flex item's available space, capped by
+     max-width) rather than a vw-based calculation, since that's resolved against
+     .help-modal's actual box instead of an independent, easy-to-desync viewport
+     figure. */
+  min-width: 0;
+  width: 100%;
+  max-width: 480px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 24px;
+  text-align: left;
+  background: var(--bg-panel);
+  border: 2px solid var(--neon-cyan);
+  border-radius: 8px;
+  box-shadow:
+    0 0 24px rgba(var(--neon-cyan-rgb), 0.5),
+    0 0 48px rgba(var(--neon-pink-rgb), 0.3);
+}
+
+.help-panel h2 {
+  margin: 0 28px 8px 0;
+  font-size: 1.3rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 8px var(--neon-cyan);
+}
+
+.help-panel h3 {
+  margin: 16px 0 4px;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--neon-pink);
+}
+
+.help-panel p,
+.help-panel li {
+  margin: 4px 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--text-main);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.help-panel ul {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.help-panel strong {
+  color: var(--neon-amber);
+}
+
+.help-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  font-size: 1.2rem;
+  line-height: 1;
+  color: var(--text-main);
+  background: transparent;
+  border: 1px solid var(--neon-violet);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.help-close:hover {
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan);
+}
+
+.help-dismiss {
+  display: inline-block;
+  margin-top: 16px;
+  padding: 8px 16px;
+  font-size: 1rem;
 }
 
 .is-flex {
@@ -239,7 +412,12 @@ input[type="checkbox"] {
   accent-color: var(--neon-pink);
 }
 
-button {
+/* .help-dismiss is a <label> styled to match <button> (checkbox-hack modals can't use
+   a real <button> for their toggle, since only <label for="..."> and the checkbox
+   itself can flip :checked without JS) -- sharing these rules keeps it visually
+   identical instead of drifting from the real buttons over time. */
+button,
+.help-dismiss {
   padding: 10px 18px;
   color: #fff;
   /* White-on-gradient measures ~3.26:1 -- below WCAG AA's 4.5:1 for normal text, but
@@ -258,14 +436,16 @@ button {
   transition: transform 0.1s ease, box-shadow 0.2s ease;
 }
 
-button:hover {
+button:hover,
+.help-dismiss:hover {
   box-shadow:
     0 0 16px rgba(var(--neon-pink-rgb), 0.9),
     0 0 24px rgba(var(--neon-cyan-rgb), 0.6);
   transform: translateY(-1px);
 }
 
-button:active {
+button:active,
+.help-dismiss:active {
   transform: translateY(0);
 }
 

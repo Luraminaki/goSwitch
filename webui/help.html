@@ -1,0 +1,56 @@
+{{ define "help" }}
+<input type="checkbox" id="help-toggle" class="visually-hidden" />
+<label for="help-toggle" class="help-badge" aria-label="How to play">?</label>
+
+<div class="help-modal">
+  <label for="help-toggle" class="help-backdrop" aria-hidden="true"></label>
+
+  <div class="help-panel" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <label for="help-toggle" class="help-close" aria-label="Close">&times;</label>
+
+    <h2 id="help-title">How to Play</h2>
+
+    <p>
+      Every square is either lit or dark. Clicking a square <strong>switches</strong> it
+      -- and, depending on the pattern below, its neighbors too. The goal: get every
+      square on the board into the <strong>same</strong> state, all lit or all dark.
+    </p>
+
+    <h3>Toggle Pattern</h3>
+    <p><strong>Grid Configuration</strong> controls which cells a click actually flips:</p>
+    <ul>
+      <li><strong>0</strong> -- the clicked square itself.</li>
+      <li><strong>4</strong> -- its up/down/left/right neighbors.</li>
+      <li><strong>8</strong> -- its diagonal neighbors.</li>
+    </ul>
+    <p>
+      Any combination can be active at once. Change the grid size or pattern, then
+      <strong>Reset (with config)</strong> to deal a new board.
+    </p>
+
+    <h3>Undo &amp; Move History</h3>
+    <p>
+      <strong>Game Trivia</strong> lists every square you've switched, in order.
+      Switching the same square twice cancels itself back out, so it drops off the
+      list if nothing else has changed since. <strong>Undo</strong> reverts whichever
+      move is now last on that list.
+    </p>
+
+    <h3>Cheat</h3>
+    <p>
+      Turning on <strong>Enable Cheat</strong> reveals one sequence of squares under
+      <strong>Winning Combination</strong> that solves the current board -- there's
+      often more than one.
+    </p>
+
+    <h3>Sessions</h3>
+    <p>
+      The <strong>Sessions</strong> badge shows how many players are active out of the
+      server's capacity. If it's full, you'll wait in line and join automatically once
+      a slot frees up -- no need to refresh.
+    </p>
+
+    <label for="help-toggle" class="help-dismiss">Got it</label>
+  </div>
+</div>
+{{ end }}
