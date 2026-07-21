@@ -21,7 +21,7 @@ jobs:
       # committed, and go-version-file would then pin CI to that exact patch forever
       # instead of floating to the latest 1.26.x. This is the same class of drift that
       # already caused a real CI-vs-local Go-version bug in this repo (see CHANGELOG).
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
 
@@ -74,7 +74,7 @@ jobs:
       # committed, and go-version-file would then pin CI to that exact patch forever
       # instead of floating to the latest 1.26.x. This is the same class of drift that
       # already caused a real CI-vs-local Go-version bug in this repo (see CHANGELOG).
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
 
