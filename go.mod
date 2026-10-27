@@ -1,11 +1,11 @@
 module goSwitch
 
-go 1.26
+go 1.26.0
 
 toolchain go1.26.5
 
 require (
-	github.com/labstack/echo/v4 v4.15.4
+	github.com/labstack/echo/v4 v4.16.2
 	golang.org/x/time v0.15.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
@@ -16,8 +16,8 @@ require (
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
-	golang.org/x/crypto v0.54.0 // indirect
-	golang.org/x/net v0.57.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 )
